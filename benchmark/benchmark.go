@@ -53,8 +53,9 @@ type Params struct {
 }
 
 type Result struct {
-	ExecTimePerOp time.Duration
-	AllocsPerOp   uint64
+	ExecTimePerOp   time.Duration
+	AllocsPerOp     uint64
+	AllocBytesPerOp uint64
 }
 
 type Func func(b *testing.B, params Params)
@@ -71,8 +72,9 @@ func (c *Comparison) Execute() {
 
 		// Populate bwarr result
 		run.BwarrResult = Result{
-			ExecTimePerOp: time.Duration(bwarrResult.NsPerOp()),
-			AllocsPerOp:   uint64(bwarrResult.AllocsPerOp()), //nolint:gosec // AllocsPerOp always returns non-negative value
+			ExecTimePerOp:   time.Duration(bwarrResult.NsPerOp()),
+			AllocsPerOp:     uint64(bwarrResult.AllocsPerOp()),       //nolint:gosec // AllocsPerOp always returns non-negative value
+			AllocBytesPerOp: uint64(bwarrResult.AllocedBytesPerOp()), //nolint:gosec // AllocedBytesPerOp always returns non-negative value
 		}
 
 		// Run btree benchmark
@@ -82,8 +84,9 @@ func (c *Comparison) Execute() {
 
 		// Populate btree result
 		run.BTreeResult = Result{
-			ExecTimePerOp: time.Duration(btreeResult.NsPerOp()),
-			AllocsPerOp:   uint64(btreeResult.AllocsPerOp()), //nolint:gosec // AllocsPerOp always returns non-negative value
+			ExecTimePerOp:   time.Duration(btreeResult.NsPerOp()),
+			AllocsPerOp:     uint64(btreeResult.AllocsPerOp()),       //nolint:gosec // AllocsPerOp always returns non-negative value
+			AllocBytesPerOp: uint64(btreeResult.AllocedBytesPerOp()), //nolint:gosec // AllocedBytesPerOp always returns non-negative value
 		}
 	}
 }
@@ -96,19 +99,16 @@ func BenchBWArrInsert(b *testing.B, params Params) {
 	// Enable memory allocation reporting
 	b.ReportAllocs()
 
-	// Report the number of bytes processed per operation (for throughput calculation)
-	b.SetBytes(int64(len(values) * 8)) //nolint:mnd // 8 is the size of int64 in bytes
-
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
 
 	// Run b.N iterations (controlled by testing.B framework)
 	for range b.N {
-		// Stop timer during tree creation (setup, not measured)
+		// Stop timer during bwa creation (setup, not measured)
 		b.StopTimer()
 		bwa := bwarr.New(func(a, b int64) int {
 			return int(a - b)
-		}, BWArrCapacity)
+		}, 0)
 		b.StartTimer()
 
 		// Measured operation: Insert all values into fresh tree
@@ -125,9 +125,6 @@ func BenchBtreeInsert(b *testing.B, params Params) {
 
 	// Enable memory allocation reporting
 	b.ReportAllocs()
-
-	// Report the number of bytes processed per operation (for throughput calculation)
-	b.SetBytes(int64(len(values) * 8)) //nolint:mnd // 8 is the size of int64 in bytes
 
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
