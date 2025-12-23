@@ -88,6 +88,7 @@ func main() {
 			BWArrBenchFunc: benchmark.BenchBWArrInsert,
 			BTreeBenchFunc: benchmark.BenchBtreeInsert,
 			Runs:           standardRuns,
+			MeasureAllocs:  true,
 		},
 		{
 			Name:           "Get Performance",
@@ -118,14 +119,16 @@ func main() {
 		log.Printf("Generated graph: %s", timePath)
 		graphCount++
 
-		// Generate allocations graph
-		allocsPath := baseName + "_allocs.png"
-		err = generateAllocsGraph(comp, allocsPath)
-		if err != nil {
-			log.Fatalf("Error generating allocations graph for %s: %v", comp.Name, err)
+		// Generate allocations graph only if MeasureAllocs is enabled
+		if comp.MeasureAllocs {
+			allocsPath := baseName + "_allocs.png"
+			err = generateAllocsGraph(comp, allocsPath)
+			if err != nil {
+				log.Fatalf("Error generating allocations graph for %s: %v", comp.Name, err)
+			}
+			log.Printf("Generated graph: %s", allocsPath)
+			graphCount++
 		}
-		log.Printf("Generated graph: %s", allocsPath)
-		graphCount++
 	}
 
 	log.Printf("Done! Generated %d graphs", graphCount)

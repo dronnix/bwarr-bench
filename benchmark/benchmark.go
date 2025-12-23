@@ -33,6 +33,7 @@ func GenerateDataset(count int, seed int64) []int64 {
 // Comparison consists of multiple benchmark runs comparing two implementations.
 type Comparison struct {
 	Name           string
+	MeasureAllocs  bool // Whether to measure allocations
 	BWArrBenchFunc Func
 	BTreeBenchFunc Func
 	Runs           []Run
