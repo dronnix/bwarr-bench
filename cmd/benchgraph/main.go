@@ -18,10 +18,12 @@ import (
 
 const (
 	// Dataset sizes for benchmarking
-	size1024 = 1023
-	size2048 = 2047
-	size4096 = 4095
-	size8192 = 8191
+	size100K = 100_000
+	size250K = 250_000
+	size500K = 500_000
+	size1M   = 1_000_000
+	size2M   = 2_000_000
+	size4M   = 4_000_000
 
 	// Graph styling constants
 	lineWidth       = 2
@@ -31,7 +33,11 @@ const (
 	graphHeightInch = 6
 
 	// Graph labels
-	xAxisLabel = "Dataset Size (N)"
+	xAxisLabel = "Dataset Size (thousands of elements)"
+
+	// Unit conversions
+	thousandDivisor = 1000.0
+	bytesToKB       = 1024.0
 )
 
 // sanitizeFilename converts a comparison name to a valid filename
@@ -61,26 +67,38 @@ func main() {
 		return []benchmark.Run{
 			{
 				Params: benchmark.Params{
-					N:          size1024,
-					InitValues: benchmark.GenerateDataset(size1024, benchmark.Seed),
+					N:          size100K,
+					InitValues: benchmark.GenerateDataset(size100K, benchmark.Seed),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size2048,
-					InitValues: benchmark.GenerateDataset(size2048, benchmark.Seed),
+					N:          size250K,
+					InitValues: benchmark.GenerateDataset(size250K, benchmark.Seed),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size4096,
-					InitValues: benchmark.GenerateDataset(size4096, benchmark.Seed),
+					N:          size500K,
+					InitValues: benchmark.GenerateDataset(size500K, benchmark.Seed),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size8192,
-					InitValues: benchmark.GenerateDataset(size8192, benchmark.Seed),
+					N:          size1M,
+					InitValues: benchmark.GenerateDataset(size1M, benchmark.Seed),
+				},
+			},
+			{
+				Params: benchmark.Params{
+					N:          size2M,
+					InitValues: benchmark.GenerateDataset(size2M, benchmark.Seed),
+				},
+			},
+			{
+				Params: benchmark.Params{
+					N:          size4M,
+					InitValues: benchmark.GenerateDataset(size4M, benchmark.Seed),
 				},
 			},
 		}
@@ -156,19 +174,21 @@ func generateTimeGraph(comparison benchmark.Comparison, outputPath string) error
 
 	p.Title.Text = "Benchmark Comparison: BWArr vs BTree - " + comparison.Name
 	p.X.Label.Text = xAxisLabel
-	p.Y.Label.Text = "Time (microseconds)"
+	p.Y.Label.Text = "Time (milliseconds)"
 
 	// Prepare data points for each implementation
 	bwarrPoints := make(plotter.XYs, 0, len(comparison.Runs))
 	btreePoints := make(plotter.XYs, 0, len(comparison.Runs))
 
 	for _, run := range comparison.Runs {
-		// Convert time.Duration to microseconds
-		bwarrMicros := float64(run.BwarrResult.ExecTimePerOp.Microseconds())
-		btreeMicros := float64(run.BTreeResult.ExecTimePerOp.Microseconds())
+		// Convert time.Duration to milliseconds
+		bwarrMillis := float64(run.BwarrResult.ExecTimePerOp.Milliseconds())
+		btreeMillis := float64(run.BTreeResult.ExecTimePerOp.Milliseconds())
+		// Convert N to thousands for X-axis
+		xValue := float64(run.N) / thousandDivisor
 
-		bwarrPoints = append(bwarrPoints, plotter.XY{X: float64(run.N), Y: bwarrMicros})
-		btreePoints = append(btreePoints, plotter.XY{X: float64(run.N), Y: btreeMicros})
+		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: bwarrMillis})
+		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: btreeMillis})
 	}
 
 	// Sort points by X (size) for proper line drawing
@@ -238,9 +258,11 @@ func generateAllocsGraph(comparison benchmark.Comparison, outputPath string) err
 	for _, run := range comparison.Runs {
 		bwarrAllocs := float64(run.BwarrResult.AllocsPerOp)
 		btreeAllocs := float64(run.BTreeResult.AllocsPerOp)
+		// Convert N to thousands for X-axis
+		xValue := float64(run.N) / thousandDivisor
 
-		bwarrPoints = append(bwarrPoints, plotter.XY{X: float64(run.N), Y: bwarrAllocs})
-		btreePoints = append(btreePoints, plotter.XY{X: float64(run.N), Y: btreeAllocs})
+		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: bwarrAllocs})
+		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: btreeAllocs})
 	}
 
 	// Sort points by X (size) for proper line drawing
@@ -301,18 +323,21 @@ func generateBytesGraph(comparison benchmark.Comparison, outputPath string) erro
 
 	p.Title.Text = "Benchmark Comparison: BWArr vs BTree - " + comparison.Name + " (Bytes)"
 	p.X.Label.Text = xAxisLabel
-	p.Y.Label.Text = "Allocated Bytes per Operation"
+	p.Y.Label.Text = "Allocated KB per Operation"
 
 	// Prepare data points for each implementation
 	bwarrPoints := make(plotter.XYs, 0, len(comparison.Runs))
 	btreePoints := make(plotter.XYs, 0, len(comparison.Runs))
 
 	for _, run := range comparison.Runs {
-		bwarrBytes := float64(run.BwarrResult.AllocBytesPerOp)
-		btreeBytes := float64(run.BTreeResult.AllocBytesPerOp)
+		// Convert bytes to kilobytes
+		bwarrKB := float64(run.BwarrResult.AllocBytesPerOp) / bytesToKB
+		btreeKB := float64(run.BTreeResult.AllocBytesPerOp) / bytesToKB
+		// Convert N to thousands for X-axis
+		xValue := float64(run.N) / thousandDivisor
 
-		bwarrPoints = append(bwarrPoints, plotter.XY{X: float64(run.N), Y: bwarrBytes})
-		btreePoints = append(btreePoints, plotter.XY{X: float64(run.N), Y: btreeBytes})
+		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: bwarrKB})
+		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: btreeKB})
 	}
 
 	// Sort points by X (size) for proper line drawing
