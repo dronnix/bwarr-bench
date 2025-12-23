@@ -31,3 +31,10 @@ go.work.sum
 .idea/
 .claude/
 # .vscode/
+
+# Benchmark outputs
+*.png
+bench_*.txt
+
+# Build artifacts
+bin/

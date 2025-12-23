@@ -1,6 +1,6 @@
 # Makefile for bwarr-bench
 
-.PHONY: all test bench bench-quick bench-bwarr bench-btree bench-size fmt help
+.PHONY: all test bench bench-quick bench-bwarr bench-btree bench-size bench-graph build-benchgraph fmt help
 
 all: test
 
@@ -13,25 +13,15 @@ bench:
 bench-quick:
 	go test -bench=. -benchmem -benchtime=1s ./benchmark
 
-bench-bwarr:
-	go test -bench=BenchmarkBWArr -benchmem -benchtime=10s ./benchmark
+build:
+	go build -o bin/benchgraph ./cmd/benchgraph
 
-bench-btree:
-	go test -bench=BenchmarkBTree -benchmem -benchtime=10s ./benchmark
-
-bench-size:
-	go test -bench=Insert_$(SIZE) -benchmem -benchtime=10s ./benchmark
+run: build
+	./bin/benchgraph -output benchmark_comparison.png
+	@echo "Graph saved to benchmark_comparison.png"
 
 fmt:
 	go fmt ./...
 
-help:
-	@echo "Available targets:"
-	@echo "  make test          - Run unit tests"
-	@echo "  make bench         - Run all benchmarks (10s each)"
-	@echo "  make bench-quick   - Run quick benchmarks (1s each)"
-	@echo "  make bench-bwarr   - Run only bwarr benchmarks"
-	@echo "  make bench-btree   - Run only btree benchmarks"
-	@echo "  make bench-size    - Run benchmarks for specific size (use SIZE=N)"
-	@echo "  make fmt           - Format Go source code"
-	@echo "  make help          - Show this help message"
+lint:
+	golangci-lint run -c .golangci.yml

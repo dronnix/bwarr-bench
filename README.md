@@ -94,6 +94,39 @@ Columns explained:
 - `36992 B/op`: Average bytes allocated per operation
 - `92 allocs/op`: Average number of allocations per operation
 
+### Generating Comparison Graphs
+
+Generate PNG graphs comparing bwarr vs btree performance:
+```bash
+make bench-graph
+```
+
+This runs benchmarks programmatically for 10 seconds each and creates **two graphs**:
+
+**1. Time comparison** (`benchmark_comparison.png`):
+- X-axis: Dataset size (1024, 2048, 4096, 8192)
+- Y-axis: Time in milliseconds
+- Blue line with circles: bwarr performance
+- Red line with squares: btree performance
+
+**2. Allocations comparison** (`benchmark_comparison_allocs.png`):
+- X-axis: Dataset size (1024, 2048, 4096, 8192)
+- Y-axis: Allocations per operation
+- Blue line with circles: bwarr allocations
+- Red line with squares: btree allocations
+
+The graph generation tool uses Go's `testing.Benchmark()` API internally, ensuring accurate and consistent results. The output PNGs are suitable for documentation and presentations.
+
+**Custom benchmark duration:**
+```bash
+# Run benchmarks for 30 seconds each
+./bin/benchgraph -test.benchtime=30s -output benchmark_comparison.png
+
+# Or build and run directly
+make build-benchgraph
+./bin/benchgraph -test.benchtime=5s -output quick_benchmark.png
+```
+
 ### Comparing Benchmarks
 
 Save baseline results:
@@ -138,7 +171,26 @@ go tool pprof mem.prof
 
 ## Graphing Benchmark Results
 
-### Option 1: Using benchstat + CSV Export
+### Built-in Graph Generator (Recommended)
+
+The project includes a built-in graph generator that uses pure Go libraries:
+
+```bash
+make bench-graph
+```
+
+This creates two professional comparison graphs:
+- `benchmark_comparison.png` - Time performance comparison
+- `benchmark_comparison_allocs.png` - Memory allocations comparison
+
+The tool:
+- Runs benchmarks programmatically using `testing.Benchmark()` with 10s benchtime
+- Uses gonum/plot for graph generation (pure Go, no external dependencies)
+- Generates publication-ready PNG output for both time and allocations metrics
+- Works on all platforms without requiring Python or external tools
+- Supports custom benchmark duration via `-test.benchtime` flag
+
+### Alternative: Using benchstat + CSV Export
 
 Export benchstat results to CSV:
 ```bash
@@ -147,7 +199,7 @@ benchstat -format=csv bench_new.txt > results.csv
 
 Import into Excel, Google Sheets, or use for plotting.
 
-### Option 2: Using Python/matplotlib
+### Alternative: Using Python/matplotlib
 
 Example Python script (`plot_benchmarks.py`):
 ```python
@@ -185,7 +237,7 @@ Run:
 python plot_benchmarks.py
 ```
 
-### Option 3: Using benchgraph
+### Alternative: Using benchgraph
 
 Install benchgraph:
 ```bash
