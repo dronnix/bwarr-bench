@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"log"
 	"sort"
+	"strings"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
@@ -30,76 +31,104 @@ const (
 	graphHeightInch = 6
 )
 
-// insertSuffix inserts a suffix before the file extension
-// e.g., "output.png" with suffix "_allocs" becomes "output_allocs.png"
-func insertSuffix(path, suffix string) string {
-	ext := ".png"
-	if len(path) > 4 && path[len(path)-4:] == ".png" {
-		return path[:len(path)-4] + suffix + ext
+// sanitizeFilename converts a comparison name to a valid filename
+// Example: "Insert Performance" → "insert_performance"
+func sanitizeFilename(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+	// Replace spaces with underscores
+	name = strings.ReplaceAll(name, " ", "_")
+	// Remove special characters (keep only alphanumeric and underscores)
+	var result strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		}
 	}
-	return path + suffix
+	return result.String()
 }
 
 func main() {
-	// Parse command line flags
-	outputPath := flag.String("output", "benchmark_comparison.png", "Path to output PNG file")
 	flag.Parse()
 
 	log.Println("Running benchmarks...")
 
-	// Create Comparison with multiple Runs for different dataset sizes
-	comparison := benchmark.Comparison{
-		Name:           "Insert Performance Comparison",
-		BWArrBenchFunc: benchmark.BenchBWArrInsert,
-		BTreeBenchFunc: benchmark.BenchBtreeInsert,
-		Runs: []benchmark.Run{
-			{
-				Params: benchmark.Params{
-					N:          size1024,
-					InitValues: benchmark.GenerateDataset(size1024, benchmark.Seed),
-				},
+	// Create standard Runs for all benchmark sizes
+	standardRuns := []benchmark.Run{
+		{
+			Params: benchmark.Params{
+				N:          size1024,
+				InitValues: benchmark.GenerateDataset(size1024, benchmark.Seed),
 			},
-			{
-				Params: benchmark.Params{
-					N:          size2048,
-					InitValues: benchmark.GenerateDataset(size2048, benchmark.Seed),
-				},
+		},
+		{
+			Params: benchmark.Params{
+				N:          size2048,
+				InitValues: benchmark.GenerateDataset(size2048, benchmark.Seed),
 			},
-			{
-				Params: benchmark.Params{
-					N:          size4096,
-					InitValues: benchmark.GenerateDataset(size4096, benchmark.Seed),
-				},
+		},
+		{
+			Params: benchmark.Params{
+				N:          size4096,
+				InitValues: benchmark.GenerateDataset(size4096, benchmark.Seed),
 			},
-			{
-				Params: benchmark.Params{
-					N:          size8192,
-					InitValues: benchmark.GenerateDataset(size8192, benchmark.Seed),
-				},
+		},
+		{
+			Params: benchmark.Params{
+				N:          size8192,
+				InitValues: benchmark.GenerateDataset(size8192, benchmark.Seed),
 			},
 		},
 	}
 
-	// Execute all runs
+	// Create Comparisons for different operations
+	comparisons := []benchmark.Comparison{
+		{
+			Name:           "Insert Performance",
+			BWArrBenchFunc: benchmark.BenchBWArrInsert,
+			BTreeBenchFunc: benchmark.BenchBtreeInsert,
+			Runs:           standardRuns,
+		},
+		{
+			Name:           "Get Performance",
+			BWArrBenchFunc: benchmark.BenchBWArrGet,
+			BTreeBenchFunc: benchmark.BenchBTreeGet,
+			Runs:           standardRuns,
+		},
+	}
+
+	// Execute all comparisons
 	log.Println("Executing benchmarks...")
-	comparison.Execute()
-
-	// Generate time comparison graph
-	log.Println("Generating time comparison graph...")
-	err := generateTimeGraph(comparison, *outputPath)
-	if err != nil {
-		log.Fatalf("Error generating time graph: %v", err)
+	for i := range comparisons {
+		log.Printf("Executing %s...", comparisons[i].Name)
+		comparisons[i].Execute()
 	}
-	log.Printf("Generated graph: %s", *outputPath)
 
-	// Generate allocations comparison graph
-	allocsPath := insertSuffix(*outputPath, "_allocs")
-	log.Println("Generating allocations comparison graph...")
-	err = generateAllocsGraph(comparison, allocsPath)
-	if err != nil {
-		log.Fatalf("Error generating allocations graph: %v", err)
+	// Generate graphs for all comparisons
+	log.Println("Generating graphs...")
+	graphCount := 0
+	for _, comp := range comparisons {
+		// Generate time graph
+		baseName := sanitizeFilename(comp.Name)
+		timePath := baseName + ".png"
+		err := generateTimeGraph(comp, timePath)
+		if err != nil {
+			log.Fatalf("Error generating time graph for %s: %v", comp.Name, err)
+		}
+		log.Printf("Generated graph: %s", timePath)
+		graphCount++
+
+		// Generate allocations graph
+		allocsPath := baseName + "_allocs.png"
+		err = generateAllocsGraph(comp, allocsPath)
+		if err != nil {
+			log.Fatalf("Error generating allocations graph for %s: %v", comp.Name, err)
+		}
+		log.Printf("Generated graph: %s", allocsPath)
+		graphCount++
 	}
-	log.Printf("Generated graph: %s", allocsPath)
+
+	log.Printf("Done! Generated %d graphs", graphCount)
 }
 
 // generateTimeGraph creates a PNG graph comparing benchmark time results
@@ -107,7 +136,7 @@ func generateTimeGraph(comparison benchmark.Comparison, outputPath string) error
 	// Create new plot
 	p := plot.New()
 
-	p.Title.Text = "Benchmark Comparison: bwarr vs btree Insert Performance"
+	p.Title.Text = "Benchmark Comparison: BWArr vs BTree Insert Performance"
 	p.X.Label.Text = "Dataset Size (N)"
 	p.Y.Label.Text = "Time (microseconds)"
 

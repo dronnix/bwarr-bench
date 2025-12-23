@@ -17,8 +17,7 @@ build:
 	go build -o bin/benchgraph ./cmd/benchgraph
 
 run: build
-	./bin/benchgraph -output benchmark_comparison.png
-	@echo "Graph saved to benchmark_comparison.png"
+	./bin/benchgraph
 
 fmt:
 	go fmt ./...

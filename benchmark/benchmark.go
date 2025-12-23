@@ -105,14 +105,14 @@ func BenchBWArrInsert(b *testing.B, params Params) {
 	for range b.N {
 		// Stop timer during tree creation (setup, not measured)
 		b.StopTimer()
-		tree := bwarr.New(func(a, b int64) int {
+		bwa := bwarr.New(func(a, b int64) int {
 			return int(a - b)
 		}, BWArrCapacity)
 		b.StartTimer()
 
 		// Measured operation: Insert all values into fresh tree
 		for _, v := range values {
-			tree.Insert(v)
+			bwa.Insert(v)
 		}
 	}
 }
@@ -141,6 +141,65 @@ func BenchBtreeInsert(b *testing.B, params Params) {
 		// Measured operation: Insert all values into fresh tree
 		for _, v := range values {
 			tree.ReplaceOrInsert(v)
+		}
+	}
+}
+
+func BenchBWArrGet(b *testing.B, params Params) {
+	b.Helper()
+
+	// Enable memory allocation reporting
+	b.ReportAllocs()
+
+	// Report the number of bytes processed per operation (for throughput calculation)
+	b.SetBytes(8) //nolint:mnd // 8 is the size of int64 in bytes
+
+	bwa := bwarr.NewFromSlice(func(a, b int64) int {
+		return int(a - b)
+	}, params.InitValues)
+
+	toFind := params.InitValues[:params.N] // TODO: use a better selection strategy (shuffle?)
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	// Run b.N iterations (controlled by testing.B framework)
+	for range b.N {
+		for _, v := range toFind {
+			r, ok := bwa.Get(v)
+			if !ok || r != v { // To avoid compiler optimizations
+				b.Fatalf("Expected to find %d, got %d (found: %v)", v, r, ok)
+			}
+		}
+	}
+}
+
+func BenchBTreeGet(b *testing.B, params Params) {
+	b.Helper()
+
+	// Enable memory allocation reporting
+	b.ReportAllocs()
+
+	// Report the number of bytes processed per operation (for throughput calculation)
+	b.SetBytes(8) //nolint:mnd // 8 is the size of int64 in bytes
+
+	tree := btree.NewOrderedG[int64](BTreeDegree)
+	for _, v := range params.InitValues {
+		tree.ReplaceOrInsert(v)
+	}
+
+	toFind := params.InitValues[:params.N] // TODO: use a better selection strategy (shuffle?)
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	// Run b.N iterations (controlled by testing.B framework)graph
+	for range b.N {
+		for _, v := range toFind {
+			r, ok := tree.Get(v)
+			if !ok || r != v { // To avoid compiler optimizations
+				b.Fatalf("Expected to find %d, got %d (found: %v)", v, r, ok)
+			}
 		}
 	}
 }
