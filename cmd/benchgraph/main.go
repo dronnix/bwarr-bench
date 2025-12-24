@@ -19,7 +19,7 @@ const (
 	size4M   = 4_000_000
 )
 
-func main() {
+func main() { //nolint:funlen
 	flag.Parse()
 
 	log.Println("Running benchmarks...")
@@ -79,6 +79,27 @@ func main() {
 			Name:           "Get all values by key",
 			BWArrBenchFunc: benchmark.BenchBWArrGet,
 			BTreeBenchFunc: benchmark.BenchBTreeGet,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Ordered iteration over all values",
+			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
+			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Unordered iteration over all values",
+			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
+			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Delete all values",
+			BWArrBenchFunc: benchmark.BenchBWArrDelete,
+			BTreeBenchFunc: benchmark.BenchBTreeDelete,
 			Runs:           createStandardRuns(),
 			MeasureAllocs:  false,
 		},

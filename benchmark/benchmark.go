@@ -133,12 +133,6 @@ func BenchBtreeInsert(b *testing.B, params Params) {
 func BenchBWArrGet(b *testing.B, params Params) {
 	b.Helper()
 
-	// Enable memory allocation reporting
-	b.ReportAllocs()
-
-	// Report the number of bytes processed per operation (for throughput calculation)
-	b.SetBytes(8) //nolint:mnd // 8 is the size of int64 in bytes
-
 	bwa := bwarr.NewFromSlice(func(a, b int64) int {
 		return int(a - b)
 	}, params.InitValues)
@@ -152,7 +146,7 @@ func BenchBWArrGet(b *testing.B, params Params) {
 	for range b.N {
 		for _, v := range toFind {
 			r, ok := bwa.Get(v)
-			if !ok || r != v { // To avoid compiler optimizations
+			if !ok || r != v { // Use return values to avoid compiler optimizations
 				b.Fatalf("Expected to find %d, got %d (found: %v)", v, r, ok)
 			}
 		}
@@ -161,12 +155,6 @@ func BenchBWArrGet(b *testing.B, params Params) {
 
 func BenchBTreeGet(b *testing.B, params Params) {
 	b.Helper()
-
-	// Enable memory allocation reporting
-	b.ReportAllocs()
-
-	// Report the number of bytes processed per operation (for throughput calculation)
-	b.SetBytes(8) //nolint:mnd // 8 is the size of int64 in bytes
 
 	tree := btree.NewOrderedG[int64](BTreeDegree)
 	for _, v := range params.InitValues {
@@ -182,9 +170,111 @@ func BenchBTreeGet(b *testing.B, params Params) {
 	for range b.N {
 		for _, v := range toFind {
 			r, ok := tree.Get(v)
-			if !ok || r != v { // To avoid compiler optimizations
+			if !ok || r != v { // Use return values to avoid compiler optimizations
 				b.Fatalf("Expected to find %d, got %d (found: %v)", v, r, ok)
 			}
+		}
+	}
+}
+
+func BenchBWArrOrderedIterate(b *testing.B, params Params) {
+	b.Helper()
+
+	bwa := bwarr.NewFromSlice(func(a, b int64) int {
+		return int(a - b)
+	}, params.InitValues)
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	s := int64(0)
+	// Run b.N iterations (controlled by testing.B framework)
+	for range b.N {
+		bwa.Ascend(func(item int64) bool {
+			s += item // Use item to avoid compiler optimizations
+			return true
+		})
+	}
+}
+
+func BenchBTreeOrderedIterate(b *testing.B, params Params) {
+	b.Helper()
+
+	tree := btree.NewOrderedG[int64](BTreeDegree)
+	for _, v := range params.InitValues {
+		tree.ReplaceOrInsert(v)
+	}
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	s := int64(0)
+	// Run b.N iterations (controlled by testing.B framework)graph
+	for range b.N {
+		tree.Ascend(func(item int64) bool {
+			s += item // Use item to avoid compiler optimizations
+			return true
+		})
+	}
+}
+
+func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
+	b.Helper()
+
+	bwa := bwarr.NewFromSlice(func(a, b int64) int {
+		return int(a - b)
+	}, params.InitValues)
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	s := int64(0)
+	// Run b.N iterations (controlled by testing.B framework)
+	for range b.N {
+		bwa.UnorderedWalk(func(item int64) bool {
+			s += item // Use item to avoid compiler optimizations
+			return true
+		})
+	}
+}
+
+func BenchBTreeDelete(b *testing.B, params Params) {
+	b.Helper()
+
+	tree := btree.NewOrderedG[int64](BTreeDegree)
+	for _, v := range params.InitValues {
+		tree.ReplaceOrInsert(v)
+	}
+
+	toDel := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	// Run b.N iterations (controlled by testing.B framework)graph
+	for range b.N {
+		for _, v := range toDel {
+			tree.Delete(v)
+		}
+	}
+}
+
+func BenchBWArrDelete(b *testing.B, params Params) {
+	b.Helper()
+
+	bwa := bwarr.NewFromSlice(func(a, b int64) int {
+		return int(a - b)
+	}, params.InitValues)
+
+	toDel := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
+
+	// Reset timer to exclude any setup time
+	b.ResetTimer()
+
+	// Run b.N iterations (controlled by testing.B framework)
+	for range b.N {
+		for _, v := range toDel {
+			bwa.Delete(v)
 		}
 	}
 }
