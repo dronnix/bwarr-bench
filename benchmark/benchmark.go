@@ -15,20 +15,7 @@ const (
 
 	// BTreeDegree is the degree parameter for btree (per user requirements).
 	BTreeDegree = 32
-
-	// BWArrCapacity is the initial capacity hint for bwarr (0 = auto).
-	BWArrCapacity = 0
 )
-
-// GenerateDataset creates a reproducible slice of random int64 values.
-func GenerateDataset(count int, seed int64) []int64 {
-	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // Using math/rand for reproducible benchmark data
-	values := make([]int64, count)
-	for i := range count {
-		values[i] = rng.Int63()
-	}
-	return values
-}
 
 // Comparison consists of multiple benchmark runs comparing two implementations.
 type Comparison struct {
@@ -48,8 +35,8 @@ type Run struct {
 }
 
 type Params struct {
-	N          int     // Number of elements to apply inside the benchmark
-	InitValues []int64 // Pre-generated values to populate the data structures
+	ElementsToApply int     // Number of elements to apply inside the benchmark
+	InitValues      []int64 // Pre-generated values to populate the data structures
 }
 
 type Result struct {
@@ -156,7 +143,7 @@ func BenchBWArrGet(b *testing.B, params Params) {
 		return int(a - b)
 	}, params.InitValues)
 
-	toFind := params.InitValues[:params.N] // TODO: use a better selection strategy (shuffle?)
+	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
@@ -186,7 +173,7 @@ func BenchBTreeGet(b *testing.B, params Params) {
 		tree.ReplaceOrInsert(v)
 	}
 
-	toFind := params.InitValues[:params.N] // TODO: use a better selection strategy (shuffle?)
+	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
@@ -200,4 +187,15 @@ func BenchBTreeGet(b *testing.B, params Params) {
 			}
 		}
 	}
+}
+
+// GenerateRandomDataset creates a reproducible slice of random int64 values.
+// Values are in range [0, maxValue).
+func GenerateRandomDataset(count int, seed, maxValue int64) []int64 {
+	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // Using math/rand for reproducible benchmark data
+	values := make([]int64, count)
+	for i := range count {
+		values[i] = rng.Int63n(maxValue)
+	}
+	return values
 }

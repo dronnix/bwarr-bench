@@ -2,16 +2,9 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"image/color"
 	"log"
-	"sort"
+	"math"
 	"strings"
-
-	"gonum.org/v1/plot"
-	"gonum.org/v1/plot/plotter"
-	"gonum.org/v1/plot/vg"
-	"gonum.org/v1/plot/vg/draw"
 
 	"github.com/dronnix/bwarr-bench/benchmark"
 )
@@ -24,38 +17,7 @@ const (
 	size1M   = 1_000_000
 	size2M   = 2_000_000
 	size4M   = 4_000_000
-
-	// Graph styling constants
-	lineWidth       = 2
-	pointRadius     = 4
-	colorMaxValue   = 255
-	graphWidthInch  = 8
-	graphHeightInch = 6
-
-	// Graph labels
-	xAxisLabel = "Dataset Size (thousands of elements)"
-
-	// Unit conversions
-	thousandDivisor = 1000.0
-	bytesToKB       = 1024.0
 )
-
-// sanitizeFilename converts a comparison name to a valid filename
-// Example: "Insert Performance" → "insert_performance"
-func sanitizeFilename(name string) string {
-	// Convert to lowercase
-	name = strings.ToLower(name)
-	// Replace spaces with underscores
-	name = strings.ReplaceAll(name, " ", "_")
-	// Remove special characters (keep only alphanumeric and underscores)
-	var result strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
-			result.WriteRune(r)
-		}
-	}
-	return result.String()
-}
 
 func main() {
 	flag.Parse()
@@ -67,38 +29,38 @@ func main() {
 		return []benchmark.Run{
 			{
 				Params: benchmark.Params{
-					N:          size100K,
-					InitValues: benchmark.GenerateDataset(size100K, benchmark.Seed),
+					ElementsToApply: size100K,
+					InitValues:      benchmark.GenerateRandomDataset(size100K, benchmark.Seed, math.MaxInt64),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size250K,
-					InitValues: benchmark.GenerateDataset(size250K, benchmark.Seed),
+					ElementsToApply: size250K,
+					InitValues:      benchmark.GenerateRandomDataset(size250K, benchmark.Seed, math.MaxInt64),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size500K,
-					InitValues: benchmark.GenerateDataset(size500K, benchmark.Seed),
+					ElementsToApply: size500K,
+					InitValues:      benchmark.GenerateRandomDataset(size500K, benchmark.Seed, math.MaxInt64),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size1M,
-					InitValues: benchmark.GenerateDataset(size1M, benchmark.Seed),
+					ElementsToApply: size1M,
+					InitValues:      benchmark.GenerateRandomDataset(size1M, benchmark.Seed, math.MaxInt64),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size2M,
-					InitValues: benchmark.GenerateDataset(size2M, benchmark.Seed),
+					ElementsToApply: size2M,
+					InitValues:      benchmark.GenerateRandomDataset(size2M, benchmark.Seed, math.MaxInt64),
 				},
 			},
 			{
 				Params: benchmark.Params{
-					N:          size4M,
-					InitValues: benchmark.GenerateDataset(size4M, benchmark.Seed),
+					ElementsToApply: size4M,
+					InitValues:      benchmark.GenerateRandomDataset(size4M, benchmark.Seed, math.MaxInt64),
 				},
 			},
 		}
@@ -107,14 +69,14 @@ func main() {
 	// Create Comparisons for different operations (each gets its own Runs slice)
 	comparisons := []benchmark.Comparison{
 		{
-			Name:           "Insert Performance",
+			Name:           "Insert unique values",
 			BWArrBenchFunc: benchmark.BenchBWArrInsert,
 			BTreeBenchFunc: benchmark.BenchBtreeInsert,
 			Runs:           createStandardRuns(),
 			MeasureAllocs:  true,
 		},
 		{
-			Name:           "Get Performance",
+			Name:           "Get all values by key",
 			BWArrBenchFunc: benchmark.BenchBWArrGet,
 			BTreeBenchFunc: benchmark.BenchBTreeGet,
 			Runs:           createStandardRuns(),
@@ -167,224 +129,19 @@ func main() {
 	log.Printf("Done! Generated %d graphs", graphCount)
 }
 
-// generateTimeGraph creates a PNG graph comparing benchmark time results
-func generateTimeGraph(comparison benchmark.Comparison, outputPath string) error {
-	// Create new plot
-	p := plot.New()
-
-	p.Title.Text = "Benchmark Comparison: BWArr vs BTree - " + comparison.Name
-	p.X.Label.Text = xAxisLabel
-	p.Y.Label.Text = "Time (milliseconds)"
-
-	// Prepare data points for each implementation
-	bwarrPoints := make(plotter.XYs, 0, len(comparison.Runs))
-	btreePoints := make(plotter.XYs, 0, len(comparison.Runs))
-
-	for _, run := range comparison.Runs {
-		// Convert time.Duration to milliseconds
-		bwarrMillis := float64(run.BwarrResult.ExecTimePerOp.Milliseconds())
-		btreeMillis := float64(run.BTreeResult.ExecTimePerOp.Milliseconds())
-		// Convert N to thousands for X-axis
-		xValue := float64(run.N) / thousandDivisor
-
-		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: bwarrMillis})
-		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: btreeMillis})
+// sanitizeFilename converts a comparison name to a valid filename
+// Example: "Insert Performance" → "insert_performance"
+func sanitizeFilename(name string) string {
+	// Convert to lowercase
+	name = strings.ToLower(name)
+	// Replace spaces with underscores
+	name = strings.ReplaceAll(name, " ", "_")
+	// Remove special characters (keep only alphanumeric and underscores)
+	var result strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		}
 	}
-
-	// Sort points by X (size) for proper line drawing
-	sort.Slice(bwarrPoints, func(i, j int) bool {
-		return bwarrPoints[i].X < bwarrPoints[j].X
-	})
-	sort.Slice(btreePoints, func(i, j int) bool {
-		return btreePoints[i].X < btreePoints[j].X
-	})
-
-	// Create line and points for bwarr
-	bwarrLine, bwarrPts, err := plotter.NewLinePoints(bwarrPoints)
-	if err != nil {
-		return fmt.Errorf("creating bwarr line: %w", err)
-	}
-	bwarrLine.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue} // Blue
-	bwarrLine.Width = vg.Points(lineWidth)
-	bwarrPts.Shape = draw.CircleGlyph{}
-	bwarrPts.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue}
-	bwarrPts.Radius = vg.Points(pointRadius)
-
-	// Create line and points for btree
-	btreeLine, btreePts, err := plotter.NewLinePoints(btreePoints)
-	if err != nil {
-		return fmt.Errorf("creating btree line: %w", err)
-	}
-	btreeLine.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue} // Red
-	btreeLine.Width = vg.Points(lineWidth)
-	btreePts.Shape = draw.BoxGlyph{}
-	btreePts.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue}
-	btreePts.Radius = vg.Points(pointRadius)
-
-	// Add to plot
-	p.Add(bwarrLine, bwarrPts, btreeLine, btreePts)
-	p.Legend.Add("bwarr", bwarrLine, bwarrPts)
-	p.Legend.Add("btree", btreeLine, btreePts)
-	p.Legend.Top = true
-	p.Legend.Left = true
-
-	// Add grid
-	p.Add(plotter.NewGrid())
-
-	// Save as PNG
-	err = p.Save(graphWidthInch*vg.Inch, graphHeightInch*vg.Inch, outputPath)
-	if err != nil {
-		return fmt.Errorf("saving plot: %w", err)
-	}
-
-	return nil
-}
-
-// generateAllocsGraph creates a PNG graph comparing benchmark allocations results
-//
-//nolint:dupl // Intentionally similar to generateBytesGraph, different metric extraction
-func generateAllocsGraph(comparison benchmark.Comparison, outputPath string) error {
-	// Create new plot
-	p := plot.New()
-
-	p.Title.Text = "Benchmark Comparison: BWArr vs BTree - " + comparison.Name + " (Allocations)"
-	p.X.Label.Text = xAxisLabel
-	p.Y.Label.Text = "Allocations per Operation"
-
-	// Prepare data points for each implementation
-	bwarrPoints := make(plotter.XYs, 0, len(comparison.Runs))
-	btreePoints := make(plotter.XYs, 0, len(comparison.Runs))
-
-	for _, run := range comparison.Runs {
-		bwarrAllocs := float64(run.BwarrResult.AllocsPerOp)
-		btreeAllocs := float64(run.BTreeResult.AllocsPerOp)
-		// Convert N to thousands for X-axis
-		xValue := float64(run.N) / thousandDivisor
-
-		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: bwarrAllocs})
-		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: btreeAllocs})
-	}
-
-	// Sort points by X (size) for proper line drawing
-	sort.Slice(bwarrPoints, func(i, j int) bool {
-		return bwarrPoints[i].X < bwarrPoints[j].X
-	})
-	sort.Slice(btreePoints, func(i, j int) bool {
-		return btreePoints[i].X < btreePoints[j].X
-	})
-
-	// Create line and points for bwarr
-	bwarrLine, bwarrPts, err := plotter.NewLinePoints(bwarrPoints)
-	if err != nil {
-		return fmt.Errorf("creating bwarr line: %w", err)
-	}
-	bwarrLine.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue} // Blue
-	bwarrLine.Width = vg.Points(lineWidth)
-	bwarrPts.Shape = draw.CircleGlyph{}
-	bwarrPts.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue}
-	bwarrPts.Radius = vg.Points(pointRadius)
-
-	// Create line and points for btree
-	btreeLine, btreePts, err := plotter.NewLinePoints(btreePoints)
-	if err != nil {
-		return fmt.Errorf("creating btree line: %w", err)
-	}
-	btreeLine.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue} // Red
-	btreeLine.Width = vg.Points(lineWidth)
-	btreePts.Shape = draw.BoxGlyph{}
-	btreePts.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue}
-	btreePts.Radius = vg.Points(pointRadius)
-
-	// Add to plot
-	p.Add(bwarrLine, bwarrPts, btreeLine, btreePts)
-	p.Legend.Add("bwarr", bwarrLine, bwarrPts)
-	p.Legend.Add("btree", btreeLine, btreePts)
-	p.Legend.Top = true
-	p.Legend.Left = true
-
-	// Add grid
-	p.Add(plotter.NewGrid())
-
-	// Save as PNG
-	err = p.Save(graphWidthInch*vg.Inch, graphHeightInch*vg.Inch, outputPath)
-	if err != nil {
-		return fmt.Errorf("saving plot: %w", err)
-	}
-
-	return nil
-}
-
-// generateBytesGraph creates a PNG graph comparing benchmark allocated bytes results
-//
-//nolint:dupl // Intentionally similar to generateAllocsGraph, different metric extraction
-func generateBytesGraph(comparison benchmark.Comparison, outputPath string) error {
-	// Create new plot
-	p := plot.New()
-
-	p.Title.Text = "Benchmark Comparison: BWArr vs BTree - " + comparison.Name + " (Bytes)"
-	p.X.Label.Text = xAxisLabel
-	p.Y.Label.Text = "Allocated KB per Operation"
-
-	// Prepare data points for each implementation
-	bwarrPoints := make(plotter.XYs, 0, len(comparison.Runs))
-	btreePoints := make(plotter.XYs, 0, len(comparison.Runs))
-
-	for _, run := range comparison.Runs {
-		// Convert bytes to kilobytes
-		bwarrKB := float64(run.BwarrResult.AllocBytesPerOp) / bytesToKB
-		btreeKB := float64(run.BTreeResult.AllocBytesPerOp) / bytesToKB
-		// Convert N to thousands for X-axis
-		xValue := float64(run.N) / thousandDivisor
-
-		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: bwarrKB})
-		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: btreeKB})
-	}
-
-	// Sort points by X (size) for proper line drawing
-	sort.Slice(bwarrPoints, func(i, j int) bool {
-		return bwarrPoints[i].X < bwarrPoints[j].X
-	})
-	sort.Slice(btreePoints, func(i, j int) bool {
-		return btreePoints[i].X < btreePoints[j].X
-	})
-
-	// Create line and points for bwarr
-	bwarrLine, bwarrPts, err := plotter.NewLinePoints(bwarrPoints)
-	if err != nil {
-		return fmt.Errorf("creating bwarr line: %w", err)
-	}
-	bwarrLine.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue} // Blue
-	bwarrLine.Width = vg.Points(lineWidth)
-	bwarrPts.Shape = draw.CircleGlyph{}
-	bwarrPts.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue}
-	bwarrPts.Radius = vg.Points(pointRadius)
-
-	// Create line and points for btree
-	btreeLine, btreePts, err := plotter.NewLinePoints(btreePoints)
-	if err != nil {
-		return fmt.Errorf("creating btree line: %w", err)
-	}
-	btreeLine.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue} // Red
-	btreeLine.Width = vg.Points(lineWidth)
-	btreePts.Shape = draw.BoxGlyph{}
-	btreePts.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue}
-	btreePts.Radius = vg.Points(pointRadius)
-
-	// Add to plot
-	p.Add(bwarrLine, bwarrPts, btreeLine, btreePts)
-	p.Legend.Add("bwarr", bwarrLine, bwarrPts)
-	p.Legend.Add("btree", btreeLine, btreePts)
-	p.Legend.Top = true
-	p.Legend.Left = true
-
-	// Add grid
-	p.Add(plotter.NewGrid())
-
-	// Save as PNG
-	err = p.Save(graphWidthInch*vg.Inch, graphHeightInch*vg.Inch, outputPath)
-	if err != nil {
-		return fmt.Errorf("saving plot: %w", err)
-	}
-
-	return nil
+	return result.String()
 }
