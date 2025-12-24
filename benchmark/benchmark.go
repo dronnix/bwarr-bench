@@ -34,17 +34,20 @@ type Run struct {
 	BTreeResult Result
 }
 
+// Params contains parameters for running a single benchmark.
 type Params struct {
 	ElementsToApply int     // Number of elements to apply inside the benchmark
 	InitValues      []int64 // Pre-generated values to populate the data structures
 }
 
+// Result holds the performance metrics from a benchmark run.
 type Result struct {
-	ExecTimePerOp   time.Duration
-	AllocsPerOp     uint64
-	AllocBytesPerOp uint64
+	ExecTimePerOp   time.Duration // Time per operation
+	AllocsPerOp     uint64        // Number of allocations per operation
+	AllocBytesPerOp uint64        // Bytes allocated per operation
 }
 
+// Func is a benchmark function signature that accepts testing.B and benchmark parameters.
 type Func func(b *testing.B, params Params)
 
 // Execute runs all benchmark runs and populates the result fields for each.
@@ -105,8 +108,8 @@ func BenchBWArrInsert(b *testing.B, params Params) {
 	}
 }
 
-// BenchBtreeInsert benchmarks btree insert operations with a pre-generated dataset.
-func BenchBtreeInsert(b *testing.B, params Params) {
+// BenchBTreeInsert benchmarks btree insert operations with a pre-generated dataset.
+func BenchBTreeInsert(b *testing.B, params Params) {
 	b.Helper()
 	values := params.InitValues
 
@@ -130,6 +133,7 @@ func BenchBtreeInsert(b *testing.B, params Params) {
 	}
 }
 
+// BenchBWArrGet benchmarks BWArr Get operations on a pre-populated data structure.
 func BenchBWArrGet(b *testing.B, params Params) {
 	b.Helper()
 
@@ -153,6 +157,7 @@ func BenchBWArrGet(b *testing.B, params Params) {
 	}
 }
 
+// BenchBTreeGet benchmarks BTree Get operations on a pre-populated data structure.
 func BenchBTreeGet(b *testing.B, params Params) {
 	b.Helper()
 
@@ -166,7 +171,7 @@ func BenchBTreeGet(b *testing.B, params Params) {
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
 
-	// Run b.N iterations (controlled by testing.B framework)graph
+	// Run b.N iterations (controlled by testing.B framework)
 	for range b.N {
 		for _, v := range toFind {
 			r, ok := tree.Get(v)
@@ -177,6 +182,7 @@ func BenchBTreeGet(b *testing.B, params Params) {
 	}
 }
 
+// BenchBWArrOrderedIterate benchmarks iterating through all values in sorted order using BWArr.
 func BenchBWArrOrderedIterate(b *testing.B, params Params) {
 	b.Helper()
 
@@ -197,6 +203,7 @@ func BenchBWArrOrderedIterate(b *testing.B, params Params) {
 	}
 }
 
+// BenchBTreeOrderedIterate benchmarks iterating through all values in sorted order using BTree.
 func BenchBTreeOrderedIterate(b *testing.B, params Params) {
 	b.Helper()
 
@@ -209,7 +216,7 @@ func BenchBTreeOrderedIterate(b *testing.B, params Params) {
 	b.ResetTimer()
 
 	s := int64(0)
-	// Run b.N iterations (controlled by testing.B framework)graph
+	// Run b.N iterations (controlled by testing.B framework)
 	for range b.N {
 		tree.Ascend(func(item int64) bool {
 			s += item // Use item to avoid compiler optimizations
@@ -218,6 +225,7 @@ func BenchBTreeOrderedIterate(b *testing.B, params Params) {
 	}
 }
 
+// BenchBWArrUnorderedIterate benchmarks iterating through all values without ordering using BWArr.
 func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
 	b.Helper()
 
@@ -238,6 +246,7 @@ func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
 	}
 }
 
+// BenchBTreeDelete benchmarks deleting all values from a pre-populated BTree.
 func BenchBTreeDelete(b *testing.B, params Params) {
 	b.Helper()
 
@@ -251,7 +260,7 @@ func BenchBTreeDelete(b *testing.B, params Params) {
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
 
-	// Run b.N iterations (controlled by testing.B framework)graph
+	// Run b.N iterations (controlled by testing.B framework)
 	for range b.N {
 		for _, v := range toDel {
 			tree.Delete(v)
@@ -259,6 +268,7 @@ func BenchBTreeDelete(b *testing.B, params Params) {
 	}
 }
 
+// BenchBWArrDelete benchmarks deleting all values from a pre-populated BWArr.
 func BenchBWArrDelete(b *testing.B, params Params) {
 	b.Helper()
 

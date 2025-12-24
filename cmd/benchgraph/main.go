@@ -73,7 +73,7 @@ func main() { //nolint:funlen
 		{
 			Name:           "Insert unique values",
 			BWArrBenchFunc: benchmark.BenchBWArrInsert,
-			BTreeBenchFunc: benchmark.BenchBtreeInsert,
+			BTreeBenchFunc: benchmark.BenchBTreeInsert,
 			Runs:           createStandardRuns(),
 			MeasureAllocs:  true,
 		},

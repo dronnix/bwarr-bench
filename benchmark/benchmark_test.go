@@ -43,27 +43,27 @@ func BenchmarkBWArr_Insert_4M(b *testing.B) {
 // Insert benchmarks - BTree
 
 func BenchmarkBTree_Insert_100K(b *testing.B) {
-	BenchBtreeInsert(b, Params{ElementsToApply: size100K, InitValues: GenerateRandomDataset(size100K, Seed, math.MaxInt64)})
+	BenchBTreeInsert(b, Params{ElementsToApply: size100K, InitValues: GenerateRandomDataset(size100K, Seed, math.MaxInt64)})
 }
 
 func BenchmarkBTree_Insert_250K(b *testing.B) {
-	BenchBtreeInsert(b, Params{ElementsToApply: size250K, InitValues: GenerateRandomDataset(size250K, Seed, math.MaxInt64)})
+	BenchBTreeInsert(b, Params{ElementsToApply: size250K, InitValues: GenerateRandomDataset(size250K, Seed, math.MaxInt64)})
 }
 
 func BenchmarkBTree_Insert_500K(b *testing.B) {
-	BenchBtreeInsert(b, Params{ElementsToApply: size500K, InitValues: GenerateRandomDataset(size500K, Seed, math.MaxInt64)})
+	BenchBTreeInsert(b, Params{ElementsToApply: size500K, InitValues: GenerateRandomDataset(size500K, Seed, math.MaxInt64)})
 }
 
 func BenchmarkBTree_Insert_1M(b *testing.B) {
-	BenchBtreeInsert(b, Params{ElementsToApply: size1M, InitValues: GenerateRandomDataset(size1M, Seed, math.MaxInt64)})
+	BenchBTreeInsert(b, Params{ElementsToApply: size1M, InitValues: GenerateRandomDataset(size1M, Seed, math.MaxInt64)})
 }
 
 func BenchmarkBTree_Insert_2M(b *testing.B) {
-	BenchBtreeInsert(b, Params{ElementsToApply: size2M, InitValues: GenerateRandomDataset(size2M, Seed, math.MaxInt64)})
+	BenchBTreeInsert(b, Params{ElementsToApply: size2M, InitValues: GenerateRandomDataset(size2M, Seed, math.MaxInt64)})
 }
 
 func BenchmarkBTree_Insert_4M(b *testing.B) {
-	BenchBtreeInsert(b, Params{ElementsToApply: size4M, InitValues: GenerateRandomDataset(size4M, Seed, math.MaxInt64)})
+	BenchBTreeInsert(b, Params{ElementsToApply: size4M, InitValues: GenerateRandomDataset(size4M, Seed, math.MaxInt64)})
 }
 
 // Get benchmarks - BWArr
