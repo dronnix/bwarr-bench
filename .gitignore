@@ -33,7 +33,6 @@ go.work.sum
 # .vscode/
 
 # Benchmark outputs
-*.png
 bench_*.txt
 
 # Build artifacts

@@ -4,6 +4,8 @@ import (
 	"flag"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/dronnix/bwarr-bench/benchmark"
@@ -112,13 +114,20 @@ func main() { //nolint:funlen
 		comparisons[i].Execute()
 	}
 
+	// Create images directory
+	imagesDir := "images"
+	err := os.MkdirAll(imagesDir, 0755) //nolint:mnd // Standard directory permissions
+	if err != nil {
+		log.Fatalf("Error creating images directory: %v", err)
+	}
+
 	// Generate graphs for all comparisons
 	log.Println("Generating graphs...")
 	graphCount := 0
 	for _, comp := range comparisons {
 		// Generate time graph
 		baseName := sanitizeFilename(comp.Name)
-		timePath := baseName + ".png"
+		timePath := filepath.Join(imagesDir, baseName+".png")
 		err := generateTimeGraph(comp, timePath)
 		if err != nil {
 			log.Fatalf("Error generating time graph for %s: %v", comp.Name, err)
@@ -128,7 +137,7 @@ func main() { //nolint:funlen
 
 		// Generate allocations graph only if MeasureAllocs is enabled
 		if comp.MeasureAllocs {
-			allocsPath := baseName + "_allocs.png"
+			allocsPath := filepath.Join(imagesDir, baseName+"_allocs.png")
 			err = generateAllocsGraph(comp, allocsPath)
 			if err != nil {
 				log.Fatalf("Error generating allocations graph for %s: %v", comp.Name, err)
@@ -137,7 +146,7 @@ func main() { //nolint:funlen
 			graphCount++
 
 			// Generate allocated bytes graph
-			bytesPath := baseName + "_bytes.png"
+			bytesPath := filepath.Join(imagesDir, baseName+"_bytes.png")
 			err = generateBytesGraph(comp, bytesPath)
 			if err != nil {
 				log.Fatalf("Error generating bytes graph for %s: %v", comp.Name, err)
