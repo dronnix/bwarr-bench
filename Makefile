@@ -1,6 +1,6 @@
 # Makefile for bwarr-bench
 
-.PHONY: all test bench bench-quick bench-bwarr bench-btree bench-size bench-graph build-benchgraph fmt help
+.PHONY: all test bench bench-quick build run fmt lint help
 
 all: test
 
