@@ -1,4 +1,4 @@
-# BWArr benchamrks
+# BWArr benchmarks
 
 Performance benchmarks comparing [BWArr](https://github.com/dronnix/bwarr) against [Google BTree](https://github.com/google/btree).
 
