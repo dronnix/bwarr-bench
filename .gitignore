@@ -28,5 +28,12 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
+.idea/
+.claude/
 # .vscode/
+
+# Benchmark outputs
+bench_*.txt
+
+# Build artifacts
+bin/
