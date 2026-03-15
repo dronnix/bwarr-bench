@@ -27,6 +27,7 @@ const (
 	// Unit conversions
 	thousandDivisor = 1000.0
 	bytesToKB       = 1024.0
+	bytesToMB       = 1024.0 * 1024.0
 )
 
 // generateTimeGraph creates a PNG graph comparing benchmark time results
@@ -168,6 +169,66 @@ func generateAllocsGraph(comparison benchmark.Comparison, outputPath string) err
 	p.Add(plotter.NewGrid())
 
 	// Save as PNG
+	err = p.Save(graphWidthInch*vg.Inch, graphHeightInch*vg.Inch, outputPath)
+	if err != nil {
+		return fmt.Errorf("saving plot: %w", err)
+	}
+
+	return nil
+}
+
+// generateMemoryGraph creates a PNG graph comparing heap memory footprint.
+func generateMemoryGraph(mc benchmark.MemoryComparison, outputPath string) error {
+	p := plot.New()
+
+	p.Title.Text = "Benchmark Comparison: BWArr vs BTree - " + mc.Name
+	p.X.Label.Text = xAxisLabel
+	p.Y.Label.Text = "Heap Footprint (MB)"
+
+	bwarrPoints := make(plotter.XYs, 0, len(mc.Runs))
+	btreePoints := make(plotter.XYs, 0, len(mc.Runs))
+
+	for _, run := range mc.Runs {
+		xValue := float64(run.DatasetSize) / thousandDivisor
+		bwarrPoints = append(bwarrPoints, plotter.XY{X: xValue, Y: float64(run.BWArrHeapBytes) / bytesToMB})
+		btreePoints = append(btreePoints, plotter.XY{X: xValue, Y: float64(run.BTreeHeapBytes) / bytesToMB})
+	}
+
+	sort.Slice(bwarrPoints, func(i, j int) bool {
+		return bwarrPoints[i].X < bwarrPoints[j].X
+	})
+	sort.Slice(btreePoints, func(i, j int) bool {
+		return btreePoints[i].X < btreePoints[j].X
+	})
+
+	bwarrLine, bwarrPts, err := plotter.NewLinePoints(bwarrPoints)
+	if err != nil {
+		return fmt.Errorf("creating bwarr line: %w", err)
+	}
+	bwarrLine.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue}
+	bwarrLine.Width = vg.Points(lineWidth)
+	bwarrPts.Shape = draw.CircleGlyph{}
+	bwarrPts.Color = color.RGBA{R: 0, G: 0, B: colorMaxValue, A: colorMaxValue}
+	bwarrPts.Radius = vg.Points(pointRadius)
+
+	btreeLine, btreePts, err := plotter.NewLinePoints(btreePoints)
+	if err != nil {
+		return fmt.Errorf("creating btree line: %w", err)
+	}
+	btreeLine.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue}
+	btreeLine.Width = vg.Points(lineWidth)
+	btreePts.Shape = draw.BoxGlyph{}
+	btreePts.Color = color.RGBA{R: colorMaxValue, G: 0, B: 0, A: colorMaxValue}
+	btreePts.Radius = vg.Points(pointRadius)
+
+	p.Add(bwarrLine, bwarrPts, btreeLine, btreePts)
+	p.Legend.Add("bwarr", bwarrLine, bwarrPts)
+	p.Legend.Add("btree", btreeLine, btreePts)
+	p.Legend.Top = true
+	p.Legend.Left = true
+
+	p.Add(plotter.NewGrid())
+
 	err = p.Save(graphWidthInch*vg.Inch, graphHeightInch*vg.Inch, outputPath)
 	if err != nil {
 		return fmt.Errorf("saving plot: %w", err)

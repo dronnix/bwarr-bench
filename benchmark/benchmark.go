@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"math/rand"
+	"runtime"
 	"testing"
 	"time"
 
@@ -287,6 +288,87 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 			bwa.Delete(v)
 		}
 	}
+}
+
+// MemoryComparison measures heap memory footprint of both data structures at various sizes.
+type MemoryComparison struct {
+	Name string
+	Runs []MemoryRun
+}
+
+// MemoryRun holds parameters and results for a single memory footprint measurement.
+type MemoryRun struct {
+	DatasetSize int
+	InitValues  []int64
+
+	BWArrHeapBytes uint64
+	BTreeHeapBytes uint64
+}
+
+// Execute populates both data structures and measures their live heap footprint.
+func (mc *MemoryComparison) Execute() {
+	for i := range mc.Runs {
+		run := &mc.Runs[i]
+		run.BWArrHeapBytes = measureBWArrHeap(run.InitValues)
+		run.BTreeHeapBytes = measureBTreeHeap(run.InitValues)
+	}
+}
+
+// measureBWArrHeap returns the live heap bytes used by a BWArr populated with values.
+func measureBWArrHeap(values []int64) uint64 {
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond) // Give GC some time to complete (not strictly necessary, but can help with more accurate measurements)
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	bwa := bwarr.NewWithOptions(func(a, b int64) int {
+		return int(a - b)
+	}, 0, bwarr.Options{
+		ElementsKeepAllocated: 0,
+		DeleteUnusedSegments:  true,
+	})
+	for _, v := range values {
+		bwa.Insert(v)
+	}
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond) // Give GC some time to complete (not strictly necessary, but can help with more accurate measurements)
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	runtime.KeepAlive(bwa)
+
+	if after.HeapAlloc < before.HeapAlloc {
+		return 0
+	}
+	return after.HeapAlloc - before.HeapAlloc
+}
+
+// measureBTreeHeap returns the live heap bytes used by a BTree populated with values.
+func measureBTreeHeap(values []int64) uint64 {
+	runtime.GC()
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	tree := btree.NewOrderedG[int64](BTreeDegree)
+	for _, v := range values {
+		tree.ReplaceOrInsert(v)
+	}
+
+	runtime.GC()
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	runtime.KeepAlive(tree)
+
+	if after.HeapAlloc < before.HeapAlloc {
+		return 0
+	}
+	return after.HeapAlloc - before.HeapAlloc
 }
 
 // GenerateRandomDataset creates a reproducible slice of random int64 values.

@@ -70,27 +70,27 @@ func main() { //nolint:funlen
 
 	// Create Comparisons for different operations (each gets its own Runs slice)
 	comparisons := []benchmark.Comparison{
-		{
-			Name:           "Insert unique values",
-			BWArrBenchFunc: benchmark.BenchBWArrInsert,
-			BTreeBenchFunc: benchmark.BenchBTreeInsert,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  true,
-		},
-		{
-			Name:           "Get all values by key",
-			BWArrBenchFunc: benchmark.BenchBWArrGet,
-			BTreeBenchFunc: benchmark.BenchBTreeGet,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
-		{
-			Name:           "Ordered iteration over all values",
-			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
-			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
+		//{
+		//	Name:           "Insert unique values",
+		//	BWArrBenchFunc: benchmark.BenchBWArrInsert,
+		//	BTreeBenchFunc: benchmark.BenchBTreeInsert,
+		//	Runs:           createStandardRuns(),
+		//	MeasureAllocs:  true,
+		//},
+		//{
+		//	Name:           "Get all values by key",
+		//	BWArrBenchFunc: benchmark.BenchBWArrGet,
+		//	BTreeBenchFunc: benchmark.BenchBTreeGet,
+		//	Runs:           createStandardRuns(),
+		//	MeasureAllocs:  false,
+		//},
+		//{
+		//	Name:           "Ordered iteration over all values",
+		//	BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
+		//	BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
+		//	Runs:           createStandardRuns(),
+		//	MeasureAllocs:  false,
+		//},
 		{
 			Name:           "Unordered iteration over all values",
 			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
@@ -98,13 +98,29 @@ func main() { //nolint:funlen
 			Runs:           createStandardRuns(),
 			MeasureAllocs:  false,
 		},
-		{
-			Name:           "Delete all values",
-			BWArrBenchFunc: benchmark.BenchBWArrDelete,
-			BTreeBenchFunc: benchmark.BenchBTreeDelete,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
+		//{
+		//	Name:           "Delete all values",
+		//	BWArrBenchFunc: benchmark.BenchBWArrDelete,
+		//	BTreeBenchFunc: benchmark.BenchBTreeDelete,
+		//	Runs:           createStandardRuns(),
+		//	MeasureAllocs:  false,
+		//},
+	}
+
+	// Create memory footprint comparison
+	memComparison := benchmark.MemoryComparison{
+		Name: "Memory footprint after insert",
+		Runs: func() []benchmark.MemoryRun {
+			sizes := []int{size100K, size250K, size500K, size1M, size2M, size4M}
+			runs := make([]benchmark.MemoryRun, len(sizes))
+			for i, sz := range sizes {
+				runs[i] = benchmark.MemoryRun{
+					DatasetSize: sz,
+					InitValues:  benchmark.GenerateRandomDataset(sz, benchmark.Seed, math.MaxInt64),
+				}
+			}
+			return runs
+		}(),
 	}
 
 	// Execute all comparisons
@@ -113,6 +129,9 @@ func main() { //nolint:funlen
 		log.Printf("Executing %s...", comparisons[i].Name)
 		comparisons[i].Execute()
 	}
+
+	log.Printf("Executing %s...", memComparison.Name)
+	memComparison.Execute()
 
 	// Create images directory
 	imagesDir := "images"
@@ -155,6 +174,15 @@ func main() { //nolint:funlen
 			graphCount++
 		}
 	}
+
+	// Generate memory footprint graph
+	memPath := filepath.Join(imagesDir, sanitizeFilename(memComparison.Name)+".png")
+	err = generateMemoryGraph(memComparison, memPath)
+	if err != nil {
+		log.Fatalf("Error generating memory graph: %v", err)
+	}
+	log.Printf("Generated graph: %s", memPath)
+	graphCount++
 
 	log.Printf("Done! Generated %d graphs", graphCount)
 }

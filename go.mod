@@ -3,7 +3,7 @@ module github.com/dronnix/bwarr-bench
 go 1.25.7
 
 require (
-	github.com/dronnix/bwarr v1.1.1
+	github.com/dronnix/bwarr v1.1.2-0.20260315081301-293d5a5a0c09
 	github.com/google/btree v1.1.3
 	gonum.org/v1/plot v0.16.0
 )
