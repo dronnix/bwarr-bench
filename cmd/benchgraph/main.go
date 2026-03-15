@@ -70,27 +70,27 @@ func main() { //nolint:funlen
 
 	// Create Comparisons for different operations (each gets its own Runs slice)
 	comparisons := []benchmark.Comparison{
-		//{
-		//	Name:           "Insert unique values",
-		//	BWArrBenchFunc: benchmark.BenchBWArrInsert,
-		//	BTreeBenchFunc: benchmark.BenchBTreeInsert,
-		//	Runs:           createStandardRuns(),
-		//	MeasureAllocs:  true,
-		//},
-		//{
-		//	Name:           "Get all values by key",
-		//	BWArrBenchFunc: benchmark.BenchBWArrGet,
-		//	BTreeBenchFunc: benchmark.BenchBTreeGet,
-		//	Runs:           createStandardRuns(),
-		//	MeasureAllocs:  false,
-		//},
-		//{
-		//	Name:           "Ordered iteration over all values",
-		//	BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
-		//	BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-		//	Runs:           createStandardRuns(),
-		//	MeasureAllocs:  false,
-		//},
+		{
+			Name:           "Insert unique values",
+			BWArrBenchFunc: benchmark.BenchBWArrInsert,
+			BTreeBenchFunc: benchmark.BenchBTreeInsert,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  true,
+		},
+		{
+			Name:           "Get all values by key",
+			BWArrBenchFunc: benchmark.BenchBWArrGet,
+			BTreeBenchFunc: benchmark.BenchBTreeGet,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Ordered iteration over all values",
+			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
+			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  false,
+		},
 		{
 			Name:           "Unordered iteration over all values",
 			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
@@ -98,29 +98,42 @@ func main() { //nolint:funlen
 			Runs:           createStandardRuns(),
 			MeasureAllocs:  false,
 		},
-		//{
-		//	Name:           "Delete all values",
-		//	BWArrBenchFunc: benchmark.BenchBWArrDelete,
-		//	BTreeBenchFunc: benchmark.BenchBTreeDelete,
-		//	Runs:           createStandardRuns(),
-		//	MeasureAllocs:  false,
-		//},
+		{
+			Name:           "Delete all values",
+			BWArrBenchFunc: benchmark.BenchBWArrDelete,
+			BTreeBenchFunc: benchmark.BenchBTreeDelete,
+			Runs:           createStandardRuns(),
+			MeasureAllocs:  false,
+		},
 	}
 
-	// Create memory footprint comparison
-	memComparison := benchmark.MemoryComparison{
-		Name: "Memory footprint after insert",
-		Runs: func() []benchmark.MemoryRun {
-			sizes := []int{size100K, size250K, size500K, size1M, size2M, size4M}
-			runs := make([]benchmark.MemoryRun, len(sizes))
-			for i, sz := range sizes {
-				runs[i] = benchmark.MemoryRun{
-					DatasetSize: sz,
-					InitValues:  benchmark.GenerateRandomDataset(sz, benchmark.Seed, math.MaxInt64),
-				}
+	// Helper to create standard memory runs
+	createMemoryRuns := func() []benchmark.MemoryRun {
+		sizes := []int{size100K, size250K, size500K, size1M, size2M, size4M}
+		runs := make([]benchmark.MemoryRun, len(sizes))
+		for i, sz := range sizes {
+			runs[i] = benchmark.MemoryRun{
+				DatasetSize: sz,
+				InitValues:  benchmark.GenerateRandomDataset(sz, benchmark.Seed, math.MaxInt64),
 			}
-			return runs
-		}(),
+		}
+		return runs
+	}
+
+	// Create memory footprint comparisons
+	memComparisons := []benchmark.MemoryComparison{
+		{
+			Name:         "Memory footprint after insert",
+			BWArrMemFunc: benchmark.MeasureBWArrInsertHeap,
+			BTreeMemFunc: benchmark.MeasureBTreeInsertHeap,
+			Runs:         createMemoryRuns(),
+		},
+		{
+			Name:         "Memory freed after 75pct delete",
+			BWArrMemFunc: benchmark.MeasureBWArrDeleteFreed,
+			BTreeMemFunc: benchmark.MeasureBTreeDeleteFreed,
+			Runs:         createMemoryRuns(),
+		},
 	}
 
 	// Execute all comparisons
@@ -130,8 +143,10 @@ func main() { //nolint:funlen
 		comparisons[i].Execute()
 	}
 
-	log.Printf("Executing %s...", memComparison.Name)
-	memComparison.Execute()
+	for i := range memComparisons {
+		log.Printf("Executing %s...", memComparisons[i].Name)
+		memComparisons[i].Execute()
+	}
 
 	// Create images directory
 	imagesDir := "images"
@@ -175,14 +190,16 @@ func main() { //nolint:funlen
 		}
 	}
 
-	// Generate memory footprint graph
-	memPath := filepath.Join(imagesDir, sanitizeFilename(memComparison.Name)+".png")
-	err = generateMemoryGraph(memComparison, memPath)
-	if err != nil {
-		log.Fatalf("Error generating memory graph: %v", err)
+	// Generate memory footprint graphs
+	for _, mc := range memComparisons {
+		memPath := filepath.Join(imagesDir, sanitizeFilename(mc.Name)+".png")
+		err = generateMemoryGraph(mc, memPath)
+		if err != nil {
+			log.Fatalf("Error generating memory graph for %s: %v", mc.Name, err)
+		}
+		log.Printf("Generated graph: %s", memPath)
+		graphCount++
 	}
-	log.Printf("Generated graph: %s", memPath)
-	graphCount++
 
 	log.Printf("Done! Generated %d graphs", graphCount)
 }

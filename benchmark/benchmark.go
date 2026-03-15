@@ -290,10 +290,15 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 	}
 }
 
+// MemoryMeasureFunc measures heap bytes for a given dataset.
+type MemoryMeasureFunc func(values []int64) uint64
+
 // MemoryComparison measures heap memory footprint of both data structures at various sizes.
 type MemoryComparison struct {
-	Name string
-	Runs []MemoryRun
+	Name         string
+	BWArrMemFunc MemoryMeasureFunc
+	BTreeMemFunc MemoryMeasureFunc
+	Runs         []MemoryRun
 }
 
 // MemoryRun holds parameters and results for a single memory footprint measurement.
@@ -305,19 +310,22 @@ type MemoryRun struct {
 	BTreeHeapBytes uint64
 }
 
-// Execute populates both data structures and measures their live heap footprint.
+// Execute runs the memory measurement functions for each dataset size.
 func (mc *MemoryComparison) Execute() {
 	for i := range mc.Runs {
 		run := &mc.Runs[i]
-		run.BWArrHeapBytes = measureBWArrHeap(run.InitValues)
-		run.BTreeHeapBytes = measureBTreeHeap(run.InitValues)
+		run.BWArrHeapBytes = mc.BWArrMemFunc(run.InitValues)
+		run.BTreeHeapBytes = mc.BTreeMemFunc(run.InitValues)
 	}
 }
 
-// measureBWArrHeap returns the live heap bytes used by a BWArr populated with values.
-func measureBWArrHeap(values []int64) uint64 {
+// DeleteFraction is the fraction of elements to delete in delete-memory benchmarks.
+const DeleteFraction = 0.75
+
+// MeasureBWArrInsertHeap returns the live heap bytes used by a BWArr populated with values.
+func MeasureBWArrInsertHeap(values []int64) uint64 {
 	runtime.GC()
-	time.Sleep(100 * time.Millisecond) // Give GC some time to complete (not strictly necessary, but can help with more accurate measurements)
+	time.Sleep(100 * time.Millisecond) //nolint:mnd // Give GC time to stabilize
 	runtime.GC()
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
@@ -333,7 +341,7 @@ func measureBWArrHeap(values []int64) uint64 {
 	}
 
 	runtime.GC()
-	time.Sleep(100 * time.Millisecond) // Give GC some time to complete (not strictly necessary, but can help with more accurate measurements)
+	time.Sleep(100 * time.Millisecond) //nolint:mnd // Give GC time to stabilize
 	runtime.GC()
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
@@ -346,8 +354,8 @@ func measureBWArrHeap(values []int64) uint64 {
 	return after.HeapAlloc - before.HeapAlloc
 }
 
-// measureBTreeHeap returns the live heap bytes used by a BTree populated with values.
-func measureBTreeHeap(values []int64) uint64 {
+// MeasureBTreeInsertHeap returns the live heap bytes used by a BTree populated with values.
+func MeasureBTreeInsertHeap(values []int64) uint64 {
 	runtime.GC()
 	runtime.GC()
 	var before runtime.MemStats
@@ -369,6 +377,75 @@ func measureBTreeHeap(values []int64) uint64 {
 		return 0
 	}
 	return after.HeapAlloc - before.HeapAlloc
+}
+
+// MeasureBWArrDeleteFreed returns the heap bytes freed after deleting 75% of elements from a BWArr.
+func MeasureBWArrDeleteFreed(values []int64) uint64 {
+	bwa := bwarr.NewWithOptions(func(a, b int64) int {
+		return int(a - b)
+	}, 0, bwarr.Options{
+		ElementsKeepAllocated: 0,
+		DeleteUnusedSegments:  true,
+	})
+	for _, v := range values {
+		bwa.Insert(v)
+	}
+
+	toDel := values[:int(float64(len(values))*DeleteFraction)]
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond) //nolint:mnd // Give GC time to stabilize
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	for _, v := range toDel {
+		bwa.Delete(v)
+	}
+
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond) //nolint:mnd // Give GC time to stabilize
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	runtime.KeepAlive(bwa)
+
+	if before.HeapAlloc < after.HeapAlloc {
+		return 0
+	}
+	return before.HeapAlloc - after.HeapAlloc
+}
+
+// MeasureBTreeDeleteFreed returns the heap bytes freed after deleting 75% of elements from a BTree.
+func MeasureBTreeDeleteFreed(values []int64) uint64 {
+	tree := btree.NewOrderedG[int64](BTreeDegree)
+	for _, v := range values {
+		tree.ReplaceOrInsert(v)
+	}
+
+	toDel := values[:int(float64(len(values))*DeleteFraction)]
+
+	runtime.GC()
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+
+	for _, v := range toDel {
+		tree.Delete(v)
+	}
+
+	runtime.GC()
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+
+	runtime.KeepAlive(tree)
+
+	if before.HeapAlloc < after.HeapAlloc {
+		return 0
+	}
+	return before.HeapAlloc - after.HeapAlloc
 }
 
 // GenerateRandomDataset creates a reproducible slice of random int64 values.
