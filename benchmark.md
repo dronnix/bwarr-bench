@@ -3,7 +3,7 @@
 Performance comparison between [BWArr](https://github.com/dronnix/bwarr) and [Google BTree](https://github.com/google/btree) data structures across various operations.
 
 **Test Environment:**
-- Go 1.25.5
+- Go 1.26.8
 - BTree degree: 32
 - Dataset sizes: 100K, 250K, 500K, 1M, 2M, 4M elements
 - Random values: Full int64 range (math.MaxInt64)

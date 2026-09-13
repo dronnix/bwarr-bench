@@ -17,6 +17,18 @@ const (
 	BTreeDegree = 32
 )
 
+// newBWArrFromSlice builds a BWArr pre-populated with the given values.
+// It replaces bwarr.NewFromSlice, which was removed in bwarr v1.2.0.
+func newBWArrFromSlice(values []int64) *bwarr.BWArr[int64] {
+	bwa := bwarr.New(func(a, b int64) int {
+		return int(a - b)
+	}, len(values))
+	for _, v := range values {
+		bwa.Insert(v)
+	}
+	return bwa
+}
+
 // Comparison consists of multiple benchmark runs comparing two implementations.
 type Comparison struct {
 	Name           string
@@ -137,9 +149,7 @@ func BenchBTreeInsert(b *testing.B, params Params) {
 func BenchBWArrGet(b *testing.B, params Params) {
 	b.Helper()
 
-	bwa := bwarr.NewFromSlice(func(a, b int64) int {
-		return int(a - b)
-	}, params.InitValues)
+	bwa := newBWArrFromSlice(params.InitValues)
 
 	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
@@ -186,9 +196,7 @@ func BenchBTreeGet(b *testing.B, params Params) {
 func BenchBWArrOrderedIterate(b *testing.B, params Params) {
 	b.Helper()
 
-	bwa := bwarr.NewFromSlice(func(a, b int64) int {
-		return int(a - b)
-	}, params.InitValues)
+	bwa := newBWArrFromSlice(params.InitValues)
 
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
@@ -229,9 +237,7 @@ func BenchBTreeOrderedIterate(b *testing.B, params Params) {
 func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
 	b.Helper()
 
-	bwa := bwarr.NewFromSlice(func(a, b int64) int {
-		return int(a - b)
-	}, params.InitValues)
+	bwa := newBWArrFromSlice(params.InitValues)
 
 	// Reset timer to exclude any setup time
 	b.ResetTimer()
@@ -250,11 +256,6 @@ func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
 func BenchBTreeDelete(b *testing.B, params Params) {
 	b.Helper()
 
-	tree := btree.NewOrderedG[int64](BTreeDegree)
-	for _, v := range params.InitValues {
-		tree.ReplaceOrInsert(v)
-	}
-
 	toDel := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
 	// Reset timer to exclude any setup time
@@ -262,6 +263,16 @@ func BenchBTreeDelete(b *testing.B, params Params) {
 
 	// Run b.N iterations (controlled by testing.B framework)
 	for range b.N {
+		// Stop timer during tree population (setup, not measured).
+		// A fresh tree per iteration so every iteration deletes real elements.
+		b.StopTimer()
+		tree := btree.NewOrderedG[int64](BTreeDegree)
+		for _, v := range params.InitValues {
+			tree.ReplaceOrInsert(v)
+		}
+		b.StartTimer()
+
+		// Measured operation: delete all values
 		for _, v := range toDel {
 			tree.Delete(v)
 		}
@@ -272,10 +283,6 @@ func BenchBTreeDelete(b *testing.B, params Params) {
 func BenchBWArrDelete(b *testing.B, params Params) {
 	b.Helper()
 
-	bwa := bwarr.NewFromSlice(func(a, b int64) int {
-		return int(a - b)
-	}, params.InitValues)
-
 	toDel := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
 	// Reset timer to exclude any setup time
@@ -283,6 +290,13 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 
 	// Run b.N iterations (controlled by testing.B framework)
 	for range b.N {
+		// Stop timer during bwa population (setup, not measured).
+		// A fresh bwa per iteration so every iteration deletes real elements.
+		b.StopTimer()
+		bwa := newBWArrFromSlice(params.InitValues)
+		b.StartTimer()
+
+		// Measured operation: delete all values
 		for _, v := range toDel {
 			bwa.Delete(v)
 		}
