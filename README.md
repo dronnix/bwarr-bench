@@ -17,7 +17,17 @@ make run
 
 # More repetitions and a longer measured window per repetition
 ./bin/benchgraph -count=10 -test.benchtime=3s
+
+# Only some comparisons: -bench is a case-insensitive regexp matched against the
+# file name and the title of each comparison (like `go test -bench`). Default: all.
+./bin/benchgraph -list                 # show available names
+./bin/benchgraph -bench=get            # one comparison
+./bin/benchgraph -bench='insert|delete'  # several
+make run ARGS="-bench=^insert"
 ```
+
+A partial run regenerates only the matching graphs and replaces only their lines in
+`results/benchmarks.txt`; results of the other comparisons are kept.
 
 Graphs are saved to `images/` directory. Each time graph shows the mean over all
 repetitions with error bars for the min..max spread. Raw per-repetition results are
@@ -43,7 +53,7 @@ Feel free to add more operations!
 make test         - Run tests
 make bench        - Run all benchmarks (10s each)
 make bench-quick  - Quick benchmarks (1s each)
-make run          - Generate graphs in images/
+make run          - Generate graphs in images/ (ARGS="-bench=..." for a subset)
 make fmt          - Format code
 make lint         - Run linter
 ```

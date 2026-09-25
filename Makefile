@@ -17,7 +17,7 @@ build:
 	go build -o bin/benchgraph ./cmd/benchgraph
 
 run: build
-	./bin/benchgraph
+	./bin/benchgraph $(ARGS)
 
 fmt:
 	go fmt ./...

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bufio"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -8,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -36,104 +39,43 @@ const (
 	defaultResultsPath = "results/benchmarks.txt"
 )
 
-func main() { //nolint:funlen
+// standardSizes returns the dataset sizes every comparison is run at.
+func standardSizes() []int {
+	return []int{size100K, size250K, size500K, size1M, size2M, size4M}
+}
+
+func main() {
 	// Register testing flags (e.g. -test.benchtime) so testing.Benchmark honours them.
 	testing.Init()
 	count := flag.Int("count", defaultCount, "number of repetitions per data point")
 	resultsPath := flag.String("results", defaultResultsPath, "file for raw results in Go benchmark format (empty to skip)")
+	benchPattern := flag.String("bench", "",
+		"run only comparisons whose file name or title matches this regexp (case-insensitive, like go test -bench); empty runs all")
+	list := flag.Bool("list", false, "print the available comparisons and exit")
 	flag.Parse()
 
-	log.Printf("Running benchmarks (%d repetitions per point)...", *count)
+	all := buildComparisons()
 
-	// Helper function to create standard runs
-	createStandardRuns := func() []benchmark.Run {
-		return []benchmark.Run{
-			{
-				Params: benchmark.Params{
-					ElementsToApply: size100K,
-					InitValues:      benchmark.GenerateRandomDataset(size100K, benchmark.Seed, math.MaxInt64),
-				},
-			},
-			{
-				Params: benchmark.Params{
-					ElementsToApply: size250K,
-					InitValues:      benchmark.GenerateRandomDataset(size250K, benchmark.Seed, math.MaxInt64),
-				},
-			},
-			{
-				Params: benchmark.Params{
-					ElementsToApply: size500K,
-					InitValues:      benchmark.GenerateRandomDataset(size500K, benchmark.Seed, math.MaxInt64),
-				},
-			},
-			{
-				Params: benchmark.Params{
-					ElementsToApply: size1M,
-					InitValues:      benchmark.GenerateRandomDataset(size1M, benchmark.Seed, math.MaxInt64),
-				},
-			},
-			{
-				Params: benchmark.Params{
-					ElementsToApply: size2M,
-					InitValues:      benchmark.GenerateRandomDataset(size2M, benchmark.Seed, math.MaxInt64),
-				},
-			},
-			{
-				Params: benchmark.Params{
-					ElementsToApply: size4M,
-					InitValues:      benchmark.GenerateRandomDataset(size4M, benchmark.Seed, math.MaxInt64),
-				},
-			},
-		}
+	if *list {
+		printComparisons(os.Stdout, all)
+		return
 	}
 
-	// Create Comparisons for different operations (each gets its own Runs slice)
-	comparisons := []benchmark.Comparison{
-		{
-			Name:           "Insert unique values",
-			BWArrBenchFunc: benchmark.BenchBWArrInsert,
-			BTreeBenchFunc: benchmark.BenchBTreeInsert,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  true,
-		},
-		{
-			Name:           "Get all values by key",
-			BWArrBenchFunc: benchmark.BenchBWArrGet,
-			BTreeBenchFunc: benchmark.BenchBTreeGet,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
-		{
-			Name:           "Ordered iteration over all values",
-			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
-			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
-		{
-			Name:           "Unordered iteration over all values",
-			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
-			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
-		{
-			Name:           "Delete all values",
-			BWArrBenchFunc: benchmark.BenchBWArrDelete,
-			BTreeBenchFunc: benchmark.BenchBTreeDelete,
-			Runs:           createStandardRuns(),
-			MeasureAllocs:  false,
-		},
+	comparisons, err := selectComparisons(all, *benchPattern)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
 	}
 
-	// Execute all comparisons
-	log.Println("Executing benchmarks...")
+	log.Printf("Running %d of %d comparisons (%d repetitions per point)...", len(comparisons), len(all), *count)
+
+	// Execute the selected comparisons
 	for i := range comparisons {
 		log.Printf("Executing %s...", comparisons[i].Name)
 		comparisons[i].Execute(*count)
 	}
 
-	// Write raw results before drawing, so a failure in plotting does not lose the data
+	// Write raw results before drawing, so a failure in plotting does not lose the data.
+	// Lines of comparisons that were not run this time are kept.
 	if *resultsPath != "" {
 		err := writeRawResults(*resultsPath, comparisons)
 		if err != nil {
@@ -144,7 +86,7 @@ func main() { //nolint:funlen
 
 	// Create images directory
 	imagesDir := "images"
-	err := os.MkdirAll(imagesDir, 0755) //nolint:mnd // Standard directory permissions
+	err = os.MkdirAll(imagesDir, 0755) //nolint:mnd // Standard directory permissions
 	if err != nil {
 		log.Fatalf("Error creating images directory: %v", err)
 	}
@@ -187,6 +129,96 @@ func main() { //nolint:funlen
 	log.Printf("Done! Generated %d graphs", graphCount)
 }
 
+// valueRuns creates one Run per standard size with a dataset of unique random int64 values.
+func valueRuns() []benchmark.Run {
+	sizes := standardSizes()
+	runs := make([]benchmark.Run, 0, len(sizes))
+	for _, n := range sizes {
+		runs = append(runs, benchmark.Run{Params: benchmark.Params{
+			ElementsToApply: n,
+			InitValues:      benchmark.GenerateRandomDataset(n, benchmark.Seed, math.MaxInt64),
+		}})
+	}
+	return runs
+}
+
+// buildComparisons defines every graph the tool produces (each gets its own Runs slice).
+func buildComparisons() []benchmark.Comparison {
+	return []benchmark.Comparison{
+		{
+			Name:           "Insert unique values",
+			BWArrBenchFunc: benchmark.BenchBWArrInsert,
+			BTreeBenchFunc: benchmark.BenchBTreeInsert,
+			Runs:           valueRuns(),
+			MeasureAllocs:  true,
+		},
+		{
+			Name:           "Get all values by key",
+			BWArrBenchFunc: benchmark.BenchBWArrGet,
+			BTreeBenchFunc: benchmark.BenchBTreeGet,
+			Runs:           valueRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Ordered iteration over all values",
+			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
+			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
+			Runs:           valueRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Unordered iteration over all values",
+			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
+			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
+			Runs:           valueRuns(),
+			MeasureAllocs:  false,
+		},
+		{
+			Name:           "Delete all values",
+			BWArrBenchFunc: benchmark.BenchBWArrDelete,
+			BTreeBenchFunc: benchmark.BenchBTreeDelete,
+			Runs:           valueRuns(),
+			MeasureAllocs:  false,
+		},
+	}
+}
+
+// printComparisons lists every comparison as "<file name>\t<title>", one per line.
+func printComparisons(w io.Writer, comparisons []benchmark.Comparison) {
+	for i := range comparisons {
+		fmt.Fprintf(w, "%s\t%s\n", sanitizeFilename(comparisons[i].Name), comparisons[i].Name)
+	}
+}
+
+// selectComparisons returns the comparisons whose file name or title matches pattern,
+// a case-insensitive regular expression in the spirit of `go test -bench`. An empty
+// pattern selects everything. It is an error if nothing matches.
+func selectComparisons(all []benchmark.Comparison, pattern string) ([]benchmark.Comparison, error) {
+	if pattern == "" {
+		return all, nil
+	}
+	re, err := regexp.Compile("(?i)" + pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid -bench pattern %q: %w", pattern, err)
+	}
+
+	var selected []benchmark.Comparison
+	for i := range all {
+		c := &all[i]
+		if re.MatchString(sanitizeFilename(c.Name)) || re.MatchString(c.Name) {
+			selected = append(selected, *c)
+		}
+	}
+	if len(selected) == 0 {
+		names := make([]string, 0, len(all))
+		for i := range all {
+			names = append(names, sanitizeFilename(all[i].Name))
+		}
+		return nil, fmt.Errorf("no comparison matches -bench %q; available: %s", pattern, strings.Join(names, ", "))
+	}
+	return selected, nil
+}
+
 // sanitizeFilename converts a comparison name to a valid filename
 // Example: "Insert Performance" → "insert_performance"
 func sanitizeFilename(name string) string {
@@ -208,17 +240,27 @@ func sanitizeFilename(name string) string {
 // output format, which benchstat and similar tools can read. One line per repetition:
 //
 //	Benchmarkinsert_unique_values/bwarr/100K-18   16   70000344 ns/op   8528439 B/op   127 allocs/op
+//
+// If the file already exists, result lines of comparisons that are not in this run are
+// kept, so running a subset with -bench does not discard the other comparisons' data.
+// The header is always rewritten.
 func writeRawResults(path string, comparisons []benchmark.Comparison) error {
 	err := os.MkdirAll(filepath.Dir(path), 0755) //nolint:mnd // Standard directory permissions
 	if err != nil {
 		return fmt.Errorf("creating results directory: %w", err)
 	}
+
+	kept, err := readOtherResults(path, comparisons)
+	if err != nil {
+		return err
+	}
+
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("creating results file: %w", err)
 	}
 
-	err = formatRawResults(f, comparisons)
+	err = formatRawResults(f, kept, comparisons)
 	if err != nil {
 		_ = f.Close()
 		return err
@@ -230,13 +272,64 @@ func writeRawResults(path string, comparisons []benchmark.Comparison) error {
 	return nil
 }
 
+// readOtherResults returns the result lines of an existing results file that do not
+// belong to any of the given comparisons. Header ("key: value") lines are dropped.
+// A missing file yields no lines and no error.
+func readOtherResults(path string, comparisons []benchmark.Comparison) ([]string, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("opening existing results file: %w", err)
+	}
+	defer f.Close() //nolint:errcheck // read-only file
+
+	prefixes := make([]string, 0, len(comparisons))
+	for i := range comparisons {
+		prefixes = append(prefixes, "Benchmark"+sanitizeFilename(comparisons[i].Name)+"/")
+	}
+
+	var kept []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "Benchmark") || belongsTo(line, prefixes) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	err = sc.Err()
+	if err != nil {
+		return nil, fmt.Errorf("reading existing results file: %w", err)
+	}
+	return kept, nil
+}
+
+// belongsTo reports whether a result line starts with one of the comparison prefixes.
+func belongsTo(line string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // formatRawResults is the io.Writer-based core of writeRawResults, split out for testing.
-func formatRawResults(w io.Writer, comparisons []benchmark.Comparison) error {
+// keptLines are written verbatim after the header, before the new results.
+func formatRawResults(w io.Writer, keptLines []string, comparisons []benchmark.Comparison) error {
 	// Header lines in "key: value" form are treated as configuration by benchstat.
 	_, err := fmt.Fprintf(w, "goos: %s\ngoarch: %s\ngoversion: %s\nbtree-degree: %d\n",
 		runtime.GOOS, runtime.GOARCH, runtime.Version(), benchmark.BTreeDegree)
 	if err != nil {
 		return fmt.Errorf("writing header: %w", err)
+	}
+	for _, line := range keptLines {
+		_, err = fmt.Fprintln(w, line)
+		if err != nil {
+			return fmt.Errorf("writing kept line: %w", err)
+		}
 	}
 
 	procs := runtime.GOMAXPROCS(0)
