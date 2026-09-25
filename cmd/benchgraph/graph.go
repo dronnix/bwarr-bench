@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"sort"
+	"time"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
@@ -29,6 +30,13 @@ const (
 	bytesToKB       = 1024.0
 )
 
+// durationToMillis converts a duration to milliseconds as a float.
+// Duration.Milliseconds() truncates to an integer, which turns sub-millisecond
+// results (e.g. iteration over 100K elements) into 0 on the graph.
+func durationToMillis(d time.Duration) float64 {
+	return float64(d.Nanoseconds()) / float64(time.Millisecond)
+}
+
 // generateTimeGraph creates a PNG graph comparing benchmark time results
 func generateTimeGraph(comparison benchmark.Comparison, outputPath string) error {
 	// Create new plot
@@ -43,9 +51,9 @@ func generateTimeGraph(comparison benchmark.Comparison, outputPath string) error
 	btreePoints := make(plotter.XYs, 0, len(comparison.Runs))
 
 	for _, run := range comparison.Runs {
-		// Convert time.Duration to milliseconds
-		bwarrMillis := float64(run.BwarrResult.ExecTimePerOp.Milliseconds())
-		btreeMillis := float64(run.BTreeResult.ExecTimePerOp.Milliseconds())
+		// Convert time.Duration to milliseconds (float, no truncation)
+		bwarrMillis := durationToMillis(run.BwarrResult.ExecTimePerOp)
+		btreeMillis := durationToMillis(run.BTreeResult.ExecTimePerOp)
 		// Convert ElementsToApply to thousands for X-axis
 		xValue := float64(run.ElementsToApply) / thousandDivisor
 

@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"math"
+	"testing"
+	"time"
+)
 
 func TestSanitizeFilename(t *testing.T) {
 	tests := []struct {
@@ -50,5 +54,25 @@ func TestSanitizeFilename_EdgeCases(t *testing.T) {
 				t.Errorf("sanitizeFilename(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestDurationToMillis(t *testing.T) {
+	tests := []struct {
+		d        time.Duration
+		expected float64
+	}{
+		{0, 0},
+		{time.Millisecond, 1},
+		{812039 * time.Nanosecond, 0.812039}, // sub-millisecond must not become 0
+		{1500 * time.Microsecond, 1.5},
+		{2 * time.Second, 2000},
+	}
+
+	for _, tt := range tests {
+		got := durationToMillis(tt.d)
+		if math.Abs(got-tt.expected) > 1e-9 {
+			t.Errorf("durationToMillis(%v) = %v, want %v", tt.d, got, tt.expected)
+		}
 	}
 }
