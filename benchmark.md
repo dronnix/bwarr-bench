@@ -7,6 +7,8 @@ Performance comparison between [BWArr](https://github.com/dronnix/bwarr) and [Go
 - BTree degree: 32
 - Dataset sizes: 100K, 250K, 500K, 1M, 2M, 4M elements
 - Random values: Full int64 range (math.MaxInt64)
+- Repetitions: 5 per data point, bwarr and btree interleaved; graphs show the mean, error bars show min..max
+- Raw per-repetition results: [results/benchmarks.txt](results/benchmarks.txt) (Go benchmark format, readable by `benchstat`)
 
 ---
 
