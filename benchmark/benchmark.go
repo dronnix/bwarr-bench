@@ -1,6 +1,7 @@
 package benchmark
 
 import (
+	"cmp"
 	"math"
 	"math/rand"
 	"runtime"
@@ -21,10 +22,11 @@ const (
 
 // newBWArrFromSlice builds a BWArr pre-populated with the given values.
 // It replaces bwarr.NewFromSlice, which was removed in bwarr v1.2.0.
+//
+// cmp.Compare is used as the comparator instead of `int(a - b)` because
+// subtraction overflows for values of opposite sign and truncates on 32-bit targets.
 func newBWArrFromSlice(values []int64) *bwarr.BWArr[int64] {
-	bwa := bwarr.New(func(a, b int64) int {
-		return int(a - b)
-	}, len(values))
+	bwa := bwarr.New(cmp.Compare[int64], len(values))
 	for _, v := range values {
 		bwa.Insert(v)
 	}
@@ -41,21 +43,27 @@ func newBWArrFromSlice(values []int64) *bwarr.BWArr[int64] {
 // GC cycles triggered by allocations inside the timed section are left in place: they
 // are a real cost of the operation under test.
 
-// Comparison consists of multiple benchmark runs comparing two implementations.
-type Comparison struct {
-	Name           string
-	MeasureAllocs  bool // Whether to measure allocations
-	BWArrBenchFunc Func
-	BTreeBenchFunc Func
-	Runs           []Run
+// Series is one line on a graph: a named implementation of the operation under test.
+type Series struct {
+	Name string // Legend label, e.g. "bwarr" or "btree (key+value)"
+	Func Func   // Benchmark function producing the measurements for this series
 }
 
-// Run represents a single benchmark run with specific parameters and results for both datastructures.
+// Comparison consists of multiple benchmark runs comparing several implementations
+// (Series) of the same operation across dataset sizes (Runs).
+type Comparison struct {
+	Name          string   // Human-readable title used on graphs
+	FileName      string   // Base name for output files; derived from Name when empty
+	MeasureAllocs bool     // Whether to measure allocations
+	Series        []Series // Implementations under comparison, in legend order
+	Runs          []Run
+}
+
+// Run represents a single benchmark run with specific parameters and one result per Series.
 type Run struct {
 	Params
 
-	BwarrResult Result
-	BTreeResult Result
+	Results []Result // Index-aligned with Comparison.Series
 }
 
 // Params contains parameters for running a single benchmark.
@@ -79,9 +87,9 @@ type Result struct {
 type Func func(b *testing.B, params Params)
 
 // Execute runs every Run of the comparison `count` times and aggregates the results.
-// Within each repetition the bwarr and btree benchmarks are interleaved (bwarr, btree,
-// bwarr, btree, ...) so that slow drift of the machine (thermal state, background
-// load) affects both implementations equally instead of only the one that runs last.
+// Within each repetition all series are run in order (s1, s2, ..., s1, s2, ...) so that
+// slow drift of the machine (thermal state, background load) affects every
+// implementation equally instead of only the one that runs last.
 // A count below 1 is treated as 1.
 func (c *Comparison) Execute(count int) {
 	if count < 1 {
@@ -89,20 +97,23 @@ func (c *Comparison) Execute(count int) {
 	}
 	for i := range c.Runs {
 		run := &c.Runs[i]
-		bwarrSamples := make([]testing.BenchmarkResult, 0, count)
-		btreeSamples := make([]testing.BenchmarkResult, 0, count)
-
-		for range count {
-			bwarrSamples = append(bwarrSamples, testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
-				c.BWArrBenchFunc(b, run.Params)
-			}))
-			btreeSamples = append(btreeSamples, testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
-				c.BTreeBenchFunc(b, run.Params)
-			}))
+		samples := make([][]testing.BenchmarkResult, len(c.Series))
+		for s := range samples {
+			samples[s] = make([]testing.BenchmarkResult, 0, count)
 		}
 
-		run.BwarrResult = Aggregate(bwarrSamples)
-		run.BTreeResult = Aggregate(btreeSamples)
+		for range count {
+			for s, series := range c.Series {
+				samples[s] = append(samples[s], testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
+					series.Func(b, run.Params)
+				}))
+			}
+		}
+
+		run.Results = make([]Result, len(c.Series))
+		for s := range c.Series {
+			run.Results[s] = Aggregate(samples[s])
+		}
 	}
 }
 
@@ -150,6 +161,13 @@ func Aggregate(samples []testing.BenchmarkResult) Result {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Case 1: Insert, duplicates allowed.
+// bwarr has a true multiset Insert. btree has no such operation, so it is measured
+// with ReplaceOrInsert, the closest call. On a dataset of unique values both do the
+// same amount of useful work.
+// ---------------------------------------------------------------------------
+
 // BenchBWArrInsert benchmarks bwarr insert operations with a pre-generated dataset.
 func BenchBWArrInsert(b *testing.B, params Params) {
 	b.Helper()
@@ -165,9 +183,7 @@ func BenchBWArrInsert(b *testing.B, params Params) {
 	for range b.N {
 		// Stop timer during bwa creation (setup, not measured)
 		b.StopTimer()
-		bwa := bwarr.New(func(a, b int64) int {
-			return int(a - b)
-		}, 0)
+		bwa := bwarr.New(cmp.Compare[int64], 0)
 		runtime.GC()
 		b.StartTimer()
 
@@ -203,6 +219,37 @@ func BenchBTreeInsert(b *testing.B, params Params) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Case 2: ReplaceOrInsert, the collection stays unique (set semantics).
+// Both libraries offer this operation, so this is the like-for-like comparison and
+// the number a user migrating from btree to bwarr will observe.
+// ---------------------------------------------------------------------------
+
+// BenchBWArrReplaceOrInsert benchmarks bwarr ReplaceOrInsert (search + insert) on a
+// pre-generated dataset of unique values, so every call ends in an insert.
+func BenchBWArrReplaceOrInsert(b *testing.B, params Params) {
+	b.Helper()
+	values := params.InitValues
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		b.StopTimer()
+		bwa := bwarr.New(cmp.Compare[int64], 0)
+		runtime.GC()
+		b.StartTimer()
+
+		for _, v := range values {
+			bwa.ReplaceOrInsert(v)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Read / iterate / delete benchmarks (unique int64 values).
+// ---------------------------------------------------------------------------
 
 // BenchBWArrGet benchmarks BWArr Get operations on a pre-populated data structure.
 func BenchBWArrGet(b *testing.B, params Params) {
@@ -368,6 +415,10 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Dataset generators.
+// ---------------------------------------------------------------------------
 
 // GenerateRandomDataset creates a reproducible slice of random int64 values.
 // Values are in range [0, maxValue).

@@ -42,7 +42,8 @@ benchstat results/benchmarks.txt
 
 ## Benchmark Operations
 
-- **Insert** - Insert unique values into empty data structure
+- **Insert (duplicates allowed)** - bwarr `Insert` vs btree `ReplaceOrInsert` (btree doesn't support a plain `Insert`)
+- **ReplaceOrInsert (unique collection)** - set semantics on both sides; the like-for-like number
 - **Get** - Look up values by key
 - **Iterate** - Traverse all values (ordered/unordered)
 - **Delete** - Remove all values
@@ -64,7 +65,7 @@ make lint         - Run linter
 
 - **Dataset sizes**: 100K, 250K, 500K, 1M, 2M, 4M elements
 - **BTree degree**: 32
-- **Repetitions per point**: 5 (`-count`), bwarr and btree interleaved within each repetition
+- **Repetitions per point**: 5 (`-count`), all series interleaved within each repetition
 - **Measured window per repetition**: 1s (`-test.benchtime`)
 - **GC**: a full GC runs before each timed section starts; GC work caused by the timed operation itself is measured
 

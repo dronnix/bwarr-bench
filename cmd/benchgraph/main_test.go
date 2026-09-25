@@ -88,11 +88,14 @@ func TestFormatRawResults(t *testing.T) {
 		return testing.BenchmarkResult{N: n, T: time.Duration(ns) * time.Duration(n), MemAllocs: 7, MemBytes: 1024}
 	}
 	comps := []benchmark.Comparison{{
-		Name: "Insert unique values",
+		Name:   "Insert unique values",
+		Series: []benchmark.Series{{Name: seriesBwarr}, {Name: "btree (key+value)"}},
 		Runs: []benchmark.Run{{
-			Params:      benchmark.Params{ElementsToApply: 100_000},
-			BwarrResult: benchmark.Result{Samples: []testing.BenchmarkResult{sample(1, 100), sample(1, 200)}},
-			BTreeResult: benchmark.Result{Samples: []testing.BenchmarkResult{sample(2, 300)}},
+			Params: benchmark.Params{ElementsToApply: 100_000},
+			Results: []benchmark.Result{
+				{Samples: []testing.BenchmarkResult{sample(1, 100), sample(1, 200)}},
+				{Samples: []testing.BenchmarkResult{sample(2, 300)}},
+			},
 		}},
 	}}
 
@@ -111,7 +114,7 @@ func TestFormatRawResults(t *testing.T) {
 	for _, want := range []string{
 		"goos: ", "goarch: ", "btree-degree: 32\n",
 		"Benchmarkinsert_unique_values/bwarr/100K-",
-		"Benchmarkinsert_unique_values/btree/100K-",
+		"Benchmarkinsert_unique_values/btree_keyvalue/100K-",
 		"ns/op", "B/op", "allocs/op",
 	} {
 		if !strings.Contains(out, want) {
@@ -131,7 +134,7 @@ func TestFormatRawResults(t *testing.T) {
 	}
 
 	// bwarr lines must come before btree lines (deterministic order)
-	if strings.Index(out, "/bwarr/") > strings.Index(out, "/btree/") {
+	if strings.Index(out, "/bwarr/") > strings.Index(out, "/btree_keyvalue/") {
 		t.Errorf("bwarr results should precede btree results:\n%s", out)
 	}
 }
@@ -145,18 +148,19 @@ func syntheticComparison() benchmark.Comparison {
 		return benchmark.Result{ExecTimePerOp: mean, ExecTimeMin: mean - spread, ExecTimeMax: mean + spread}
 	}
 	return benchmark.Comparison{
-		Name: "Synthetic",
+		Name:   "Synthetic",
+		Series: []benchmark.Series{{Name: seriesBwarr}, {Name: seriesBtree}, {Name: "third"}},
 		Runs: []benchmark.Run{
 			// Deliberately out of order to check sorting by size
-			{Params: benchmark.Params{ElementsToApply: 1_000_000}, BwarrResult: res(10, 2), BTreeResult: res(20, 1)},
-			{Params: benchmark.Params{ElementsToApply: 100_000}, BwarrResult: res(0.8, 0.1), BTreeResult: res(0.15, 0.05)},
-			{Params: benchmark.Params{ElementsToApply: 500_000}, BwarrResult: res(5, 0.5), BTreeResult: res(8, 3)},
+			{Params: benchmark.Params{ElementsToApply: 1_000_000}, Results: []benchmark.Result{res(10, 2), res(20, 1), res(15, 0)}},
+			{Params: benchmark.Params{ElementsToApply: 100_000}, Results: []benchmark.Result{res(0.8, 0.1), res(0.15, 0.05), res(0.5, 0)}},
+			{Params: benchmark.Params{ElementsToApply: 500_000}, Results: []benchmark.Result{res(5, 0.5), res(8, 3), res(6, 0)}},
 		},
 	}
 }
 
-func TestNewTimeSeries_SortedWithSpread(t *testing.T) {
-	s := newTimeSeries(syntheticComparison().Runs, func(r benchmark.Run) benchmark.Result { return r.BwarrResult })
+func TestNewSeries_SortedWithSpread(t *testing.T) {
+	s := newSeries(syntheticComparison().Runs, 0, timeMetric())
 
 	if s.Len() != 3 {
 		t.Fatalf("Len() = %d, want 3", s.Len())
@@ -172,135 +176,51 @@ func TestNewTimeSeries_SortedWithSpread(t *testing.T) {
 	if x != 100 || math.Abs(y-0.8) > 1e-9 || math.Abs(low-0.1) > 1e-9 || math.Abs(high-0.1) > 1e-9 {
 		t.Errorf("point 0 = (x=%v, y=%v, -%v, +%v), want (100, 0.8, 0.1, 0.1)", x, y, low, high)
 	}
-}
-
-func TestGenerateTimeGraph_WritesPNG(t *testing.T) {
-	out := filepath.Join(t.TempDir(), "synthetic.png")
-
-	err := generateTimeGraph(syntheticComparison(), out)
-	if err != nil {
-		t.Fatalf("generateTimeGraph: %v", err)
+	if !s.hasErrors() {
+		t.Error("time series with spread should report hasErrors() == true")
 	}
 
-	info, err := os.Stat(out)
-	if err != nil {
-		t.Fatalf("output file missing: %v", err)
+	// Third series has zero spread, so no error bars should be drawn for it
+	if newSeries(syntheticComparison().Runs, 2, timeMetric()).hasErrors() {
+		t.Error("series without spread should report hasErrors() == false")
 	}
-	if info.Size() == 0 {
-		t.Error("output file is empty")
+	// Allocation metric never has error bars
+	if newSeries(syntheticComparison().Runs, 0, allocsMetric()).hasErrors() {
+		t.Error("allocs metric should report hasErrors() == false")
 	}
 }
 
-// Titles and file names of comparisons used in the selection tests.
-const (
-	titleInsert = "Insert unique values"
-	titleLookup = "Lookup values by key"
-	titleWalk   = "Ordered walk"
-	titleDelete = "Delete all values"
-	fileInsert  = "insert_unique_values"
-	fileLookup  = "lookup_values_by_key"
-	fileWalk    = "ordered_walk"
-	fileDelete  = "delete_all_values"
-)
+func TestGenerateGraph_WritesPNG(t *testing.T) {
+	for _, m := range []struct {
+		name string
+		m    metric
+	}{{"time", timeMetric()}, {"allocs", allocsMetric()}, {"bytes", bytesMetric()}} {
+		t.Run(m.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "synthetic.png")
 
-func TestSelectComparisons(t *testing.T) {
-	all := []benchmark.Comparison{
-		{Name: titleInsert}, {Name: titleLookup}, {Name: titleWalk}, {Name: titleDelete},
-	}
-	names := func(cs []benchmark.Comparison) []string {
-		out := make([]string, 0, len(cs))
-		for i := range cs {
-			out = append(out, sanitizeFilename(cs[i].Name))
-		}
-		return out
-	}
+			comp := syntheticComparison()
+			err := generateGraph(&comp, m.m, out)
+			if err != nil {
+				t.Fatalf("generateGraph: %v", err)
+			}
 
-	tests := []struct {
-		pattern string
-		want    []string
-	}{
-		{"", []string{fileInsert, fileLookup, fileWalk, fileDelete}},
-		{"INSERT", []string{fileInsert}},                          // case-insensitive
-		{"Lookup values", []string{fileLookup}},                   // title match
-		{"walk|delete", []string{fileWalk, fileDelete}},           // alternation
-		{"_values", []string{fileInsert, fileLookup, fileDelete}}, // file-name match
-	}
-	for _, tt := range tests {
-		got, err := selectComparisons(all, tt.pattern)
-		if err != nil {
-			t.Errorf("pattern %q: unexpected error: %v", tt.pattern, err)
-			continue
-		}
-		if strings.Join(names(got), ",") != strings.Join(tt.want, ",") {
-			t.Errorf("pattern %q: got %v, want %v", tt.pattern, names(got), tt.want)
-		}
-	}
-
-	_, err := selectComparisons(all, "nothing_matches")
-	if err == nil {
-		t.Error("expected an error when nothing matches")
-	}
-	_, err = selectComparisons(all, "(")
-	if err == nil {
-		t.Error("expected an error for an invalid regexp")
+			info, err := os.Stat(out)
+			if err != nil {
+				t.Fatalf("output file missing: %v", err)
+			}
+			if info.Size() == 0 {
+				t.Error("output file is empty")
+			}
+		})
 	}
 }
 
-func TestWriteRawResults_KeepsOtherComparisons(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "results", "benchmarks.txt")
-	sample := testing.BenchmarkResult{N: 1, T: 100}
-	insert := benchmark.Comparison{
-		Name: titleInsert,
-		Runs: []benchmark.Run{{
-			Params:      benchmark.Params{ElementsToApply: 100_000},
-			BwarrResult: benchmark.Result{Samples: []testing.BenchmarkResult{sample}},
-		}},
+func TestFileBase(t *testing.T) {
+	if got := fileBase(&benchmark.Comparison{Name: "Get all values", FileName: "custom"}); got != "custom" {
+		t.Errorf("explicit FileName: got %q, want %q", got, "custom")
 	}
-	lookup := insert
-	lookup.Name = titleLookup
-
-	// First run: both comparisons (file does not exist yet)
-	err := writeRawResults(path, []benchmark.Comparison{insert, lookup})
-	if err != nil {
-		t.Fatalf("first write: %v", err)
-	}
-
-	// Second run: only insert, with a distinguishable sample
-	insert.Runs[0].BwarrResult.Samples = []testing.BenchmarkResult{{N: 1, T: 999}}
-	err = writeRawResults(path, []benchmark.Comparison{insert})
-	if err != nil {
-		t.Fatalf("second write: %v", err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading results: %v", err)
-	}
-	out := string(data)
-
-	if strings.Count(out, "goos: ") != 1 {
-		t.Errorf("header should be written exactly once:\n%s", out)
-	}
-	if !strings.Contains(out, "Benchmark"+fileLookup+"/bwarr/100K") {
-		t.Errorf("results of the comparison not in the second run were lost:\n%s", out)
-	}
-	if strings.Count(out, "Benchmark"+fileInsert+"/") != 1 || !strings.Contains(out, "999") {
-		t.Errorf("insert results should be replaced by the second run, once:\n%s", out)
-	}
-}
-
-func TestPrintComparisons(t *testing.T) {
-	var buf bytes.Buffer
-	err := printComparisons(&buf, buildComparisons())
-	if err != nil {
-		t.Fatalf("printComparisons: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != len(buildComparisons()) {
-		t.Fatalf("got %d lines, want %d", len(lines), len(buildComparisons()))
-	}
-	if !strings.HasPrefix(lines[0], fileInsert+"\t") {
-		t.Errorf("first line = %q, want it to start with the insert file name", lines[0])
+	if got := fileBase(&benchmark.Comparison{Name: "Get all values"}); got != "get_all_values" {
+		t.Errorf("derived FileName: got %q, want %q", got, "get_all_values")
 	}
 }
 
@@ -309,14 +229,14 @@ func TestBuildComparisons(t *testing.T) {
 	seen := map[string]bool{}
 	for i := range comps {
 		c := &comps[i]
-		if c.BWArrBenchFunc == nil || c.BTreeBenchFunc == nil {
-			t.Errorf("%s: both benchmark functions must be set", c.Name)
+		if len(c.Series) < 2 {
+			t.Errorf("%s: needs at least 2 series, has %d", c.Name, len(c.Series))
 		}
 		// Metadata only: no datasets are generated until attachRuns
 		if len(c.Runs) != 0 {
 			t.Errorf("%s: buildComparisons should not attach runs, got %d", c.Name, len(c.Runs))
 		}
-		base := sanitizeFilename(c.Name)
+		base := fileBase(c)
 		if seen[base] {
 			t.Errorf("duplicate output file base %q", base)
 		}
@@ -325,7 +245,7 @@ func TestBuildComparisons(t *testing.T) {
 }
 
 func TestAttachRuns_SharesDatasets(t *testing.T) {
-	comps := []benchmark.Comparison{{Name: titleInsert}, {Name: titleLookup}}
+	comps := []benchmark.Comparison{{FileName: fileInsert}, {FileName: fileGet}} // names are not used here
 	attachRuns(comps)
 
 	sizes := standardSizes()
@@ -353,17 +273,18 @@ func TestAttachRuns_SharesDatasets(t *testing.T) {
 func TestWriteRawResults_RefusesDifferentEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "benchmarks.txt")
 	foreign := "goos: plan9\ngoarch: mips\ngoversion: go0.1\nbtree-degree: 32\n" +
-		"Benchmark" + fileLookup + "/bwarr/100K-1\t1\t5 ns/op\n"
+		"Benchmark" + fileGet + "/bwarr/100K-1\t1\t5 ns/op\n"
 	err := os.WriteFile(path, []byte(foreign), 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	insert := benchmark.Comparison{
-		Name: titleInsert,
+		Name: "Insert", FileName: fileInsert,
+		Series: []benchmark.Series{{Name: "bwarr"}},
 		Runs: []benchmark.Run{{
-			Params:      benchmark.Params{ElementsToApply: 100_000},
-			BwarrResult: benchmark.Result{Samples: []testing.BenchmarkResult{{N: 1, T: 100}}},
+			Params:  benchmark.Params{ElementsToApply: 100_000},
+			Results: []benchmark.Result{{Samples: []testing.BenchmarkResult{{N: 1, T: 100}}}},
 		}},
 	}
 
@@ -378,14 +299,128 @@ func TestWriteRawResults_RefusesDifferentEnvironment(t *testing.T) {
 	}
 
 	// Nothing to keep (the only comparison in the file is being rerun): overwrite is fine
-	lookup := insert
-	lookup.Name = titleLookup
-	err = writeRawResults(path, []benchmark.Comparison{lookup})
+	get := insert
+	get.Name, get.FileName = "Lookup", fileGet
+	err = writeRawResults(path, []benchmark.Comparison{get})
 	if err != nil {
 		t.Fatalf("rerun of the only stored comparison should overwrite: %v", err)
 	}
 	data, _ = os.ReadFile(path)
 	if strings.Contains(string(data), "plan9") {
 		t.Error("old header should be replaced when no lines are kept")
+	}
+}
+
+// File names of comparisons used in the selection tests.
+const (
+	fileInsert  = "insert_unique_values"
+	fileReplace = "replaceorinsert_unique_collection"
+	fileGet     = "get_all_values_by_key"
+	fileDelete  = "delete_all_values"
+)
+
+func TestSelectComparisons(t *testing.T) {
+	all := []benchmark.Comparison{
+		{Name: "Insert (duplicates allowed)", FileName: fileInsert},
+		{Name: "ReplaceOrInsert (unique collection)"},
+		{Name: "Lookup values by key", FileName: fileGet},
+		{Name: "Delete all values"},
+	}
+	names := func(cs []benchmark.Comparison) []string {
+		out := make([]string, 0, len(cs))
+		for i := range cs {
+			out = append(out, fileBase(&cs[i]))
+		}
+		return out
+	}
+
+	tests := []struct {
+		pattern string
+		want    []string
+	}{
+		{"", []string{fileInsert, fileReplace, fileGet, fileDelete}},
+		{"insert", []string{fileInsert, fileReplace}}, // matches both, case-insensitive
+		{"^insert", []string{fileInsert}},
+		{"Lookup", []string{fileGet}},                 // title match
+		{"get|delete", []string{fileGet, fileDelete}}, // alternation
+		{"REPLACEORINSERT", []string{fileReplace}},
+	}
+	for _, tt := range tests {
+		got, err := selectComparisons(all, tt.pattern)
+		if err != nil {
+			t.Errorf("pattern %q: unexpected error: %v", tt.pattern, err)
+			continue
+		}
+		if strings.Join(names(got), ",") != strings.Join(tt.want, ",") {
+			t.Errorf("pattern %q: got %v, want %v", tt.pattern, names(got), tt.want)
+		}
+	}
+
+	_, err := selectComparisons(all, "nothing_matches")
+	if err == nil {
+		t.Error("expected an error when nothing matches")
+	}
+	_, err = selectComparisons(all, "(")
+	if err == nil {
+		t.Error("expected an error for an invalid regexp")
+	}
+}
+
+func TestWriteRawResults_KeepsOtherComparisons(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "results", "benchmarks.txt")
+	sample := testing.BenchmarkResult{N: 1, T: 100}
+	insert := benchmark.Comparison{
+		Name: "Insert", FileName: fileInsert,
+		Series: []benchmark.Series{{Name: "bwarr"}},
+		Runs: []benchmark.Run{{
+			Params:  benchmark.Params{ElementsToApply: 100_000},
+			Results: []benchmark.Result{{Samples: []testing.BenchmarkResult{sample}}},
+		}},
+	}
+	get := insert
+	get.Name, get.FileName = "Get", fileGet
+
+	// First run: both comparisons (file does not exist yet)
+	err := writeRawResults(path, []benchmark.Comparison{insert, get})
+	if err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+
+	// Second run: only insert, with a distinguishable sample
+	insert.Runs[0].Results[0].Samples = []testing.BenchmarkResult{{N: 1, T: 999}}
+	err = writeRawResults(path, []benchmark.Comparison{insert})
+	if err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading results: %v", err)
+	}
+	out := string(data)
+
+	if strings.Count(out, "goos: ") != 1 {
+		t.Errorf("header should be written exactly once:\n%s", out)
+	}
+	if !strings.Contains(out, "Benchmark"+fileGet+"/bwarr/100K") {
+		t.Errorf("results of the comparison not in the second run were lost:\n%s", out)
+	}
+	if strings.Count(out, "Benchmark"+fileInsert+"/") != 1 || !strings.Contains(out, "999") {
+		t.Errorf("insert results should be replaced by the second run, once:\n%s", out)
+	}
+}
+
+func TestPrintComparisons(t *testing.T) {
+	var buf bytes.Buffer
+	err := printComparisons(&buf, buildComparisons())
+	if err != nil {
+		t.Fatalf("printComparisons: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != len(buildComparisons()) {
+		t.Fatalf("got %d lines, want %d", len(lines), len(buildComparisons()))
+	}
+	if !strings.HasPrefix(lines[0], fileInsert+"\t") {
+		t.Errorf("first line = %q, want it to start with the insert file name", lines[0])
 	}
 }
