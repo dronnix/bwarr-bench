@@ -237,6 +237,16 @@ func buildComparisons() []benchmark.Comparison {
 				{Name: seriesBtree, Func: benchmark.BenchBTreeDelete},
 			},
 		},
+		{
+			Name:     "Mixed workload: Insert, Get, Delete (1:1:1)",
+			FileName: "mixed_insert_get_delete",
+			Dataset:  benchmark.GenerateMixedDataset,
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrMixed},
+				{Name: seriesBtreeReplaceOrInsert, Func: benchmark.BenchBTreeMixed},
+			},
+			MeasureAllocs: true,
+		},
 	}
 }
 
