@@ -85,9 +85,11 @@ func TestComparisonExecute(t *testing.T) {
 	// StopTimer/StartTimer calls (each a stop-the-world ReadMemStats) dominate wall time.
 	const elements = 10_000
 	comparison := Comparison{
-		Name:           "Test",
-		BWArrBenchFunc: BenchBWArrInsert,
-		BTreeBenchFunc: BenchBTreeInsert,
+		Name: "Test",
+		Series: []Series{
+			{Name: "bwarr", Func: BenchBWArrInsert},
+			{Name: "btree", Func: BenchBTreeInsert},
+		},
 		Runs: []Run{
 			{
 				Params: Params{
@@ -102,42 +104,32 @@ func TestComparisonExecute(t *testing.T) {
 	// Execute with 2 repetitions so the spread statistics are exercised
 	comparison.Execute(2)
 
-	// Verify results are populated
+	// Verify results are populated, one per series
 	run := comparison.Runs[0]
-
-	if run.BwarrResult.ExecTimePerOp == 0 {
-		t.Error("BwarrResult.ExecTimePerOp is zero")
+	if len(run.Results) != len(comparison.Series) {
+		t.Fatalf("got %d results, want %d (one per series)", len(run.Results), len(comparison.Series))
 	}
 
-	if len(run.BwarrResult.Samples) != 2 || len(run.BTreeResult.Samples) != 2 {
-		t.Errorf("expected 2 samples per implementation, got %d and %d",
-			len(run.BwarrResult.Samples), len(run.BTreeResult.Samples))
-	}
+	for i, res := range run.Results {
+		name := comparison.Series[i].Name
 
-	if run.BwarrResult.ExecTimeMin > run.BwarrResult.ExecTimePerOp || run.BwarrResult.ExecTimePerOp > run.BwarrResult.ExecTimeMax {
-		t.Errorf("expected min <= mean <= max, got %v <= %v <= %v",
-			run.BwarrResult.ExecTimeMin, run.BwarrResult.ExecTimePerOp, run.BwarrResult.ExecTimeMax)
-	}
-
-	if run.BTreeResult.ExecTimePerOp == 0 {
-		t.Error("BTreeResult.ExecTimePerOp is zero")
-	}
-
-	// Since we're measuring allocations, these should be non-zero
-	if run.BwarrResult.AllocsPerOp == 0 {
-		t.Error("BwarrResult.AllocsPerOp is zero")
-	}
-
-	if run.BTreeResult.AllocsPerOp == 0 {
-		t.Error("BTreeResult.AllocsPerOp is zero")
-	}
-
-	if run.BwarrResult.AllocBytesPerOp == 0 {
-		t.Error("BwarrResult.AllocBytesPerOp is zero")
-	}
-
-	if run.BTreeResult.AllocBytesPerOp == 0 {
-		t.Error("BTreeResult.AllocBytesPerOp is zero")
+		if res.ExecTimePerOp == 0 {
+			t.Errorf("%s: ExecTimePerOp is zero", name)
+		}
+		if len(res.Samples) != 2 {
+			t.Errorf("%s: expected 2 samples, got %d", name, len(res.Samples))
+		}
+		if res.ExecTimeMin > res.ExecTimePerOp || res.ExecTimePerOp > res.ExecTimeMax {
+			t.Errorf("%s: expected min <= mean <= max, got %v <= %v <= %v",
+				name, res.ExecTimeMin, res.ExecTimePerOp, res.ExecTimeMax)
+		}
+		// Since we're measuring allocations, these should be non-zero
+		if res.AllocsPerOp == 0 {
+			t.Errorf("%s: AllocsPerOp is zero", name)
+		}
+		if res.AllocBytesPerOp == 0 {
+			t.Errorf("%s: AllocBytesPerOp is zero", name)
+		}
 	}
 }
 

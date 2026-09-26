@@ -14,6 +14,37 @@ const (
 	size4M   = 4_000_000
 )
 
+// sizeCase is one dataset size for the table-driven benchmarks below.
+type sizeCase struct {
+	name string
+	n    int
+}
+
+// standardSizes drives the table-driven benchmarks for the newer cases below.
+func standardSizes() []sizeCase {
+	return []sizeCase{
+		{"100K", size100K}, {"250K", size250K}, {"500K", size500K},
+		{"1M", size1M}, {"2M", size2M}, {"4M", size4M},
+	}
+}
+
+// benchValues runs f as a sub-benchmark per standard size with a unique int64 dataset.
+func benchValues(b *testing.B, f Func) {
+	b.Helper()
+	for _, s := range standardSizes() {
+		b.Run(s.name, func(b *testing.B) {
+			f(b, Params{ElementsToApply: s.n, InitValues: GenerateRandomDataset(s.n, Seed, math.MaxInt64)})
+		})
+	}
+}
+
+// ReplaceOrInsert benchmarks (unique collection). btree has only ReplaceOrInsert, so its
+// side is the same function as BenchmarkBTree_Insert_*; it is listed here under a matching
+// name so `go test -bench=ReplaceOrInsert` runs both implementations.
+
+func BenchmarkBWArr_ReplaceOrInsert(b *testing.B) { benchValues(b, BenchBWArrReplaceOrInsert) }
+func BenchmarkBTree_ReplaceOrInsert(b *testing.B) { benchValues(b, BenchBTreeInsert) }
+
 // Insert benchmarks - BWArr
 
 func BenchmarkBWArr_Insert_100K(b *testing.B) {

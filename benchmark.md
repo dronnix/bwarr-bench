@@ -15,9 +15,17 @@ Performance comparison between [BWArr](https://github.com/dronnix/bwarr) and [Go
 
 ## Write Operations
 
-### Insert Unique Values
+Insertion is split into two cases, because the two libraries do not offer the same
+insert operations and a fair comparison depends on what the caller needs.
 
-Measures the time to insert N unique random int64 values into an empty data structure. Both BWArr and BTree start empty and insert all values one by one.
+### Case 1: Insert, duplicates allowed
+
+Measures the time to insert N unique random int64 values into an empty data structure,
+one by one, using each library's plain insert. BWArr `Insert` is a true multiset insert:
+it never searches for an existing element. BTree has no such operation, so it is measured
+with `ReplaceOrInsert`, its only insert. On a dataset of unique values both end up doing
+the same useful work, but the bwarr number here does **not** include a duplicate check.
+Use this case if you do not care about duplicates (for example, storing event timestamps).
 
 **What's measured:**
 - Time per operation (milliseconds)
@@ -29,6 +37,21 @@ Measures the time to insert N unique random int64 values into an empty data stru
 ![Time Performance](images/insert_unique_values.png)
 ![Allocations per Operation](images/insert_unique_values_allocs.png)
 ![Allocated Bytes per Operation (KB)](images/insert_unique_values_bytes.png)
+
+---
+
+### Case 2: ReplaceOrInsert, unique collection
+
+Same dataset as case 1, but both sides call `ReplaceOrInsert`, so the collection is kept
+unique (set semantics). This is the like-for-like comparison and the number a user who
+replaces btree with bwarr will observe. The gap between the bwarr lines of case 1 and
+case 2 is the cost of the extra search bwarr must do to detect duplicates.
+
+**What's measured:** time, allocations, bytes (as in case 1)
+
+![Time Performance](images/replaceorinsert_unique_collection.png)
+![Allocations per Operation](images/replaceorinsert_unique_collection_allocs.png)
+![Allocated Bytes per Operation (KB)](images/replaceorinsert_unique_collection_bytes.png)
 
 ---
 
@@ -62,7 +85,7 @@ Measures the time to iterate through all N values in sorted order. The data stru
 
 ### Unordered Iteration Over All Values
 
-Measures the time to iterate through all N values without ordering guarantees. BWArr can iterate in insertion order or unordered for better performance.
+Measures the time to iterate through all N values without ordering guarantees. BWArr has `UnorderedWalk` for this. BTree has no unordered walk, so its line is the ordered `Ascend` and is identical to the previous graph.
 
 **What's measured:**
 - Time per operation (milliseconds)

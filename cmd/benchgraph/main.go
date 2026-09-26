@@ -27,9 +27,7 @@ const (
 	size1M   = 1_000_000
 	size2M   = 2_000_000
 	size4M   = 4_000_000
-)
 
-const (
 	// defaultCount is the number of repetitions per data point. Each repetition is a
 	// full testing.Benchmark run (about -test.benchtime of measured work), so the
 	// total run time grows linearly with this value.
@@ -38,6 +36,10 @@ const (
 	// defaultResultsPath is where raw per-repetition results are written in Go
 	// benchmark format, so they can be committed and analysed with benchstat.
 	defaultResultsPath = "results/benchmarks.txt"
+
+	// Legend names of the two libraries under comparison.
+	seriesBwarr = "bwarr"
+	seriesBtree = "btree"
 )
 
 // standardSizes returns the dataset sizes every comparison is run at.
@@ -103,34 +105,32 @@ func main() {
 	// Generate graphs for all comparisons
 	log.Println("Generating graphs...")
 	graphCount := 0
-	for _, comp := range comparisons {
-		// Generate time graph
-		baseName := sanitizeFilename(comp.Name)
-		timePath := filepath.Join(imagesDir, baseName+".png")
-		err := generateTimeGraph(comp, timePath)
-		if err != nil {
-			log.Fatalf("Error generating time graph for %s: %v", comp.Name, err)
-		}
-		log.Printf("Generated graph: %s", timePath)
-		graphCount++
-
-		// Generate allocations graph only if MeasureAllocs is enabled
+	for i := range comparisons {
+		comp := &comparisons[i]
+		graphs := []struct {
+			suffix string
+			metric metric
+		}{{"", timeMetric()}}
 		if comp.MeasureAllocs {
-			allocsPath := filepath.Join(imagesDir, baseName+"_allocs.png")
-			err = generateAllocsGraph(comp, allocsPath)
-			if err != nil {
-				log.Fatalf("Error generating allocations graph for %s: %v", comp.Name, err)
-			}
-			log.Printf("Generated graph: %s", allocsPath)
-			graphCount++
+			graphs = append(graphs,
+				struct {
+					suffix string
+					metric metric
+				}{"_allocs", allocsMetric()},
+				struct {
+					suffix string
+					metric metric
+				}{"_bytes", bytesMetric()},
+			)
+		}
 
-			// Generate allocated bytes graph
-			bytesPath := filepath.Join(imagesDir, baseName+"_bytes.png")
-			err = generateBytesGraph(comp, bytesPath)
+		for _, g := range graphs {
+			path := filepath.Join(imagesDir, fileBase(comp)+g.suffix+".png")
+			err := generateGraph(comp, g.metric, path)
 			if err != nil {
-				log.Fatalf("Error generating bytes graph for %s: %v", comp.Name, err)
+				log.Fatalf("Error generating graph %s: %v", path, err)
 			}
-			log.Printf("Generated graph: %s", bytesPath)
+			log.Printf("Generated graph: %s", path)
 			graphCount++
 		}
 	}
@@ -165,34 +165,51 @@ func attachRuns(comparisons []benchmark.Comparison) {
 func buildComparisons() []benchmark.Comparison {
 	return []benchmark.Comparison{
 		{
-			Name:           "Insert unique values",
-			BWArrBenchFunc: benchmark.BenchBWArrInsert,
-			BTreeBenchFunc: benchmark.BenchBTreeInsert,
-			MeasureAllocs:  true,
+			Name: "Insert (duplicates allowed)",
+			// Kept as insert_unique_values: the dataset is unique values and external
+			// READMEs link to this file name.
+			FileName: "insert_unique_values",
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrInsert},
+				{Name: "btree (ReplaceOrInsert, doesn't support Insert)", Func: benchmark.BenchBTreeInsert},
+			},
+			MeasureAllocs: true,
 		},
 		{
-			Name:           "Get all values by key",
-			BWArrBenchFunc: benchmark.BenchBWArrGet,
-			BTreeBenchFunc: benchmark.BenchBTreeGet,
-			MeasureAllocs:  false,
+			Name: "ReplaceOrInsert (unique collection)",
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrReplaceOrInsert},
+				{Name: seriesBtree, Func: benchmark.BenchBTreeInsert},
+			},
+			MeasureAllocs: true,
 		},
 		{
-			Name:           "Ordered iteration over all values",
-			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
-			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			MeasureAllocs:  false,
+			Name: "Get all values by key",
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrGet},
+				{Name: seriesBtree, Func: benchmark.BenchBTreeGet},
+			},
 		},
 		{
-			Name:           "Unordered iteration over all values",
-			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
-			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			MeasureAllocs:  false,
+			Name: "Ordered iteration over all values",
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrOrderedIterate},
+				{Name: seriesBtree, Func: benchmark.BenchBTreeOrderedIterate},
+			},
 		},
 		{
-			Name:           "Delete all values",
-			BWArrBenchFunc: benchmark.BenchBWArrDelete,
-			BTreeBenchFunc: benchmark.BenchBTreeDelete,
-			MeasureAllocs:  false,
+			Name: "Unordered iteration over all values",
+			Series: []benchmark.Series{
+				{Name: "bwarr (UnorderedWalk)", Func: benchmark.BenchBWArrUnorderedIterate},
+				{Name: "btree (Ascend, no unordered walk)", Func: benchmark.BenchBTreeOrderedIterate},
+			},
+		},
+		{
+			Name: "Delete all values",
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrDelete},
+				{Name: seriesBtree, Func: benchmark.BenchBTreeDelete},
+			},
 		},
 	}
 }
@@ -200,7 +217,7 @@ func buildComparisons() []benchmark.Comparison {
 // printComparisons lists every comparison as "<file name>\t<title>", one per line.
 func printComparisons(w io.Writer, comparisons []benchmark.Comparison) error {
 	for i := range comparisons {
-		_, err := fmt.Fprintf(w, "%s\t%s\n", sanitizeFilename(comparisons[i].Name), comparisons[i].Name)
+		_, err := fmt.Fprintf(w, "%s\t%s\n", fileBase(&comparisons[i]), comparisons[i].Name)
 		if err != nil {
 			return fmt.Errorf("listing comparisons: %w", err)
 		}
@@ -223,18 +240,26 @@ func selectComparisons(all []benchmark.Comparison, pattern string) ([]benchmark.
 	var selected []benchmark.Comparison
 	for i := range all {
 		c := &all[i]
-		if re.MatchString(sanitizeFilename(c.Name)) || re.MatchString(c.Name) {
+		if re.MatchString(fileBase(c)) || re.MatchString(c.Name) {
 			selected = append(selected, *c)
 		}
 	}
 	if len(selected) == 0 {
 		names := make([]string, 0, len(all))
 		for i := range all {
-			names = append(names, sanitizeFilename(all[i].Name))
+			names = append(names, fileBase(&all[i]))
 		}
 		return nil, fmt.Errorf("no comparison matches -bench %q; available: %s", pattern, strings.Join(names, ", "))
 	}
 	return selected, nil
+}
+
+// fileBase returns the base name for a comparison's output files.
+func fileBase(comp *benchmark.Comparison) string {
+	if comp.FileName != "" {
+		return comp.FileName
+	}
+	return sanitizeFilename(comp.Name)
 }
 
 // sanitizeFilename converts a comparison name to a valid filename
@@ -322,7 +347,7 @@ func readOtherResults(path string, comparisons []benchmark.Comparison) (kept, he
 
 	prefixes := make([]string, 0, len(comparisons))
 	for i := range comparisons {
-		prefixes = append(prefixes, "Benchmark"+sanitizeFilename(comparisons[i].Name)+"/")
+		prefixes = append(prefixes, "Benchmark"+fileBase(&comparisons[i])+"/")
 	}
 
 	sc := bufio.NewScanner(f)
@@ -370,19 +395,19 @@ func formatRawResults(w io.Writer, keptLines []string, comparisons []benchmark.C
 	}
 
 	procs := runtime.GOMAXPROCS(0)
-	for _, comp := range comparisons {
-		name := "Benchmark" + sanitizeFilename(comp.Name)
-		for i := range comp.Runs {
-			run := &comp.Runs[i]
+	for ci := range comparisons {
+		comp := &comparisons[ci]
+		name := "Benchmark" + fileBase(comp)
+		for ri := range comp.Runs {
+			run := &comp.Runs[ri]
 			size := fmt.Sprintf("%dK", run.ElementsToApply/1000) //nolint:mnd // Sizes are always whole thousands
-			// Fixed order so the file is deterministic and diff-friendly
-			impls := []struct {
-				name string
-				res  benchmark.Result
-			}{{"bwarr", run.BwarrResult}, {"btree", run.BTreeResult}}
-			for _, impl := range impls {
-				for _, s := range impl.res.Samples {
-					_, err = fmt.Fprintf(w, "%s/%s/%s-%d\t%s\t%s\n", name, impl.name, size, procs, s.String(), s.MemString())
+			for si, ser := range comp.Series {
+				if si >= len(run.Results) {
+					break
+				}
+				for _, s := range run.Results[si].Samples {
+					_, err = fmt.Fprintf(w, "%s/%s/%s-%d\t%s\t%s\n",
+						name, sanitizeFilename(ser.Name), size, procs, s.String(), s.MemString())
 					if err != nil {
 						return fmt.Errorf("writing result line: %w", err)
 					}
