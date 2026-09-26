@@ -291,7 +291,10 @@ func TestWriteRawResults_KeepsOtherComparisons(t *testing.T) {
 
 func TestPrintComparisons(t *testing.T) {
 	var buf bytes.Buffer
-	printComparisons(&buf, buildComparisons())
+	err := printComparisons(&buf, buildComparisons())
+	if err != nil {
+		t.Fatalf("printComparisons: %v", err)
+	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != len(buildComparisons()) {
 		t.Fatalf("got %d lines, want %d", len(lines), len(buildComparisons()))

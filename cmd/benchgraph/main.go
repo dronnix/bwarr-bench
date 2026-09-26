@@ -58,7 +58,10 @@ func main() {
 	all := buildComparisons()
 
 	if *list {
-		printComparisons(os.Stdout, all)
+		err := printComparisons(os.Stdout, all)
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
 		return
 	}
 
@@ -195,10 +198,14 @@ func buildComparisons() []benchmark.Comparison {
 }
 
 // printComparisons lists every comparison as "<file name>\t<title>", one per line.
-func printComparisons(w io.Writer, comparisons []benchmark.Comparison) {
+func printComparisons(w io.Writer, comparisons []benchmark.Comparison) error {
 	for i := range comparisons {
-		fmt.Fprintf(w, "%s\t%s\n", sanitizeFilename(comparisons[i].Name), comparisons[i].Name)
+		_, err := fmt.Fprintf(w, "%s\t%s\n", sanitizeFilename(comparisons[i].Name), comparisons[i].Name)
+		if err != nil {
+			return fmt.Errorf("listing comparisons: %w", err)
+		}
 	}
+	return nil
 }
 
 // selectComparisons returns the comparisons whose file name or title matches pattern,
@@ -311,7 +318,7 @@ func readOtherResults(path string, comparisons []benchmark.Comparison) (kept, he
 	if err != nil {
 		return nil, nil, fmt.Errorf("opening existing results file: %w", err)
 	}
-	defer f.Close() //nolint:errcheck // read-only file
+	defer func() { _ = f.Close() }() // read-only file: a close error is not actionable
 
 	prefixes := make([]string, 0, len(comparisons))
 	for i := range comparisons {
