@@ -3,6 +3,7 @@ package benchmark
 import (
 	"math"
 	"math/rand"
+	"runtime"
 	"testing"
 	"time"
 
@@ -29,6 +30,16 @@ func newBWArrFromSlice(values []int64) *bwarr.BWArr[int64] {
 	}
 	return bwa
 }
+
+// Every benchmark calls runtime.GC() while the timer is stopped, right before timing
+// (re)starts, so that:
+//   - garbage left by the previous iteration (its data structure) or by the framework's
+//     earlier probe runs is not collected inside the timed section;
+//   - no GC cycle started by the setup allocations is still marking in the background
+//     when the timed section begins.
+//
+// GC cycles triggered by allocations inside the timed section are left in place: they
+// are a real cost of the operation under test.
 
 // Comparison consists of multiple benchmark runs comparing two implementations.
 type Comparison struct {
@@ -157,6 +168,7 @@ func BenchBWArrInsert(b *testing.B, params Params) {
 		bwa := bwarr.New(func(a, b int64) int {
 			return int(a - b)
 		}, 0)
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: Insert all values into fresh tree
@@ -182,6 +194,7 @@ func BenchBTreeInsert(b *testing.B, params Params) {
 		// Stop timer during tree creation (setup, not measured)
 		b.StopTimer()
 		tree := btree.NewOrderedG[int64](BTreeDegree)
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: Insert all values into fresh tree
@@ -199,7 +212,8 @@ func BenchBWArrGet(b *testing.B, params Params) {
 
 	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	// Run b.N iterations (controlled by testing.B framework)
@@ -224,7 +238,8 @@ func BenchBTreeGet(b *testing.B, params Params) {
 
 	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	// Run b.N iterations (controlled by testing.B framework)
@@ -244,7 +259,8 @@ func BenchBWArrOrderedIterate(b *testing.B, params Params) {
 
 	bwa := newBWArrFromSlice(params.InitValues)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	s := int64(0)
@@ -266,7 +282,8 @@ func BenchBTreeOrderedIterate(b *testing.B, params Params) {
 		tree.ReplaceOrInsert(v)
 	}
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	s := int64(0)
@@ -285,7 +302,8 @@ func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
 
 	bwa := newBWArrFromSlice(params.InitValues)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	s := int64(0)
@@ -316,6 +334,7 @@ func BenchBTreeDelete(b *testing.B, params Params) {
 		for _, v := range params.InitValues {
 			tree.ReplaceOrInsert(v)
 		}
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: delete all values
@@ -340,6 +359,7 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 		// A fresh bwa per iteration so every iteration deletes real elements.
 		b.StopTimer()
 		bwa := newBWArrFromSlice(params.InitValues)
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: delete all values

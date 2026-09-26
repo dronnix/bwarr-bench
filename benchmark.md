@@ -8,6 +8,7 @@ Performance comparison between [BWArr](https://github.com/dronnix/bwarr) and [Go
 - Dataset sizes: 100K, 250K, 500K, 1M, 2M, 4M elements
 - Random values: Full int64 range (math.MaxInt64)
 - Repetitions: 5 per data point, bwarr and btree interleaved; graphs show the mean, error bars show min..max
+- GC: a full `runtime.GC()` runs in every setup window right before timing starts. GC cycles caused by the timed operation's own allocations are included in its time
 - Raw per-repetition results: [results/benchmarks.txt](results/benchmarks.txt) (Go benchmark format, readable by `benchstat`)
 
 ---
@@ -23,7 +24,7 @@ Measures the time to insert N unique random int64 values into an empty data stru
 - Number of allocations per operation
 - Bytes allocated per operation
 
-**Setup:** Fresh empty data structure created for each iteration
+**Setup:** Fresh empty data structure created for each iteration; a full GC runs before the timer restarts, so garbage from the previous iteration is not collected inside the timed section
 
 ![Time Performance](images/insert_unique_values.png)
 ![Allocations per Operation](images/insert_unique_values_allocs.png)
@@ -40,7 +41,7 @@ Measures the time to look up N values by their keys in a pre-populated data stru
 **What's measured:**
 - Time per operation (milliseconds)
 
-**Setup:** Data structure pre-populated with all values, timing excludes setup
+**Setup:** Data structure pre-populated with all values, then a full GC, then timing starts
 
 ![Time Performance](images/get_all_values_by_key.png)
 
@@ -53,7 +54,7 @@ Measures the time to iterate through all N values in sorted order. The data stru
 **What's measured:**
 - Time per operation (milliseconds)
 
-**Setup:** Data structure pre-populated with all values
+**Setup:** Data structure pre-populated with all values, then a full GC, then timing starts
 
 ![Time Performance](images/ordered_iteration_over_all_values.png)
 
@@ -66,7 +67,7 @@ Measures the time to iterate through all N values without ordering guarantees. B
 **What's measured:**
 - Time per operation (milliseconds)
 
-**Setup:** Data structure pre-populated with all values
+**Setup:** Data structure pre-populated with all values, then a full GC, then timing starts
 
 ![Time Performance](images/unordered_iteration_over_all_values.png)
 
@@ -81,7 +82,7 @@ Measures the time to delete N values from a pre-populated data structure. Each v
 **What's measured:**
 - Time per operation (milliseconds)
 
-**Setup:** Data structure pre-populated with all values, timing excludes setup
+**Setup:** Data structure pre-populated with all values, then a full GC, then timing starts
 
 ![Time Performance](images/delete_all_values.png)
 

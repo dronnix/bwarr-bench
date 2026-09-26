@@ -64,6 +64,7 @@ make lint         - Run linter
 - **BTree degree**: 32
 - **Repetitions per point**: 5 (`-count`), bwarr and btree interleaved within each repetition
 - **Measured window per repetition**: 1s (`-test.benchtime`)
+- **GC**: a full GC runs before each timed section starts; GC work caused by the timed operation itself is measured
 
 ## License
 
