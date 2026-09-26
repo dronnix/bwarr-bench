@@ -1,7 +1,9 @@
 package benchmark
 
 import (
+	"math"
 	"math/rand"
+	"runtime"
 	"testing"
 	"time"
 
@@ -29,6 +31,16 @@ func newBWArrFromSlice(values []int64) *bwarr.BWArr[int64] {
 	return bwa
 }
 
+// Every benchmark calls runtime.GC() while the timer is stopped, right before timing
+// (re)starts, so that:
+//   - garbage left by the previous iteration (its data structure) or by the framework's
+//     earlier probe runs is not collected inside the timed section;
+//   - no GC cycle started by the setup allocations is still marking in the background
+//     when the timed section begins.
+//
+// GC cycles triggered by allocations inside the timed section are left in place: they
+// are a real cost of the operation under test.
+
 // Comparison consists of multiple benchmark runs comparing two implementations.
 type Comparison struct {
 	Name           string
@@ -52,44 +64,89 @@ type Params struct {
 	InitValues      []int64 // Pre-generated values to populate the data structures
 }
 
-// Result holds the performance metrics from a benchmark run.
+// Result holds the performance metrics aggregated over all repetitions of a benchmark run.
 type Result struct {
-	ExecTimePerOp   time.Duration // Time per operation
-	AllocsPerOp     uint64        // Number of allocations per operation
-	AllocBytesPerOp uint64        // Bytes allocated per operation
+	ExecTimePerOp   time.Duration             // Mean time per operation over all repetitions
+	ExecTimeMin     time.Duration             // Fastest repetition
+	ExecTimeMax     time.Duration             // Slowest repetition
+	ExecTimeStdDev  time.Duration             // Sample standard deviation of time per operation
+	AllocsPerOp     uint64                    // Mean number of allocations per operation
+	AllocBytesPerOp uint64                    // Mean bytes allocated per operation
+	Samples         []testing.BenchmarkResult // Raw result of every repetition, in benchstat-compatible form
 }
 
 // Func is a benchmark function signature that accepts testing.B and benchmark parameters.
 type Func func(b *testing.B, params Params)
 
-// Execute runs all benchmark runs and populates the result fields for each.
-func (c *Comparison) Execute() {
+// Execute runs every Run of the comparison `count` times and aggregates the results.
+// Within each repetition the bwarr and btree benchmarks are interleaved (bwarr, btree,
+// bwarr, btree, ...) so that slow drift of the machine (thermal state, background
+// load) affects both implementations equally instead of only the one that runs last.
+// A count below 1 is treated as 1.
+func (c *Comparison) Execute(count int) {
+	if count < 1 {
+		count = 1
+	}
 	for i := range c.Runs {
 		run := &c.Runs[i]
+		bwarrSamples := make([]testing.BenchmarkResult, 0, count)
+		btreeSamples := make([]testing.BenchmarkResult, 0, count)
 
-		// Run bwarr benchmark
-		bwarrResult := testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
-			c.BWArrBenchFunc(b, run.Params)
-		})
-
-		// Populate bwarr result
-		run.BwarrResult = Result{
-			ExecTimePerOp:   time.Duration(bwarrResult.NsPerOp()),
-			AllocsPerOp:     uint64(bwarrResult.AllocsPerOp()),       //nolint:gosec // AllocsPerOp always returns non-negative value
-			AllocBytesPerOp: uint64(bwarrResult.AllocedBytesPerOp()), //nolint:gosec // AllocedBytesPerOp always returns non-negative value
+		for range count {
+			bwarrSamples = append(bwarrSamples, testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
+				c.BWArrBenchFunc(b, run.Params)
+			}))
+			btreeSamples = append(btreeSamples, testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
+				c.BTreeBenchFunc(b, run.Params)
+			}))
 		}
 
-		// Run btree benchmark
-		btreeResult := testing.Benchmark(func(b *testing.B) { //nolint:thelper // This is a benchmark runner, not a helper
-			c.BTreeBenchFunc(b, run.Params)
-		})
+		run.BwarrResult = Aggregate(bwarrSamples)
+		run.BTreeResult = Aggregate(btreeSamples)
+	}
+}
 
-		// Populate btree result
-		run.BTreeResult = Result{
-			ExecTimePerOp:   time.Duration(btreeResult.NsPerOp()),
-			AllocsPerOp:     uint64(btreeResult.AllocsPerOp()),       //nolint:gosec // AllocsPerOp always returns non-negative value
-			AllocBytesPerOp: uint64(btreeResult.AllocedBytesPerOp()), //nolint:gosec // AllocedBytesPerOp always returns non-negative value
+// Aggregate computes mean, min, max and sample standard deviation of ns/op over
+// the given repetitions. Allocation metrics are averaged. Samples are kept so
+// callers can write raw results for tools like benchstat.
+func Aggregate(samples []testing.BenchmarkResult) Result {
+	n := len(samples)
+	if n == 0 {
+		return Result{}
+	}
+
+	var (
+		sumNs, sumAllocs, sumBytes float64
+		minNs, maxNs               = math.Inf(1), math.Inf(-1)
+	)
+	for _, s := range samples {
+		ns := float64(s.NsPerOp())
+		sumNs += ns
+		minNs = math.Min(minNs, ns)
+		maxNs = math.Max(maxNs, ns)
+		sumAllocs += float64(s.AllocsPerOp())
+		sumBytes += float64(s.AllocedBytesPerOp())
+	}
+	mean := sumNs / float64(n)
+
+	var stddev float64
+	if n > 1 {
+		var sq float64
+		for _, s := range samples {
+			d := float64(s.NsPerOp()) - mean
+			sq += d * d
 		}
+		stddev = math.Sqrt(sq / float64(n-1))
+	}
+
+	return Result{
+		ExecTimePerOp:   time.Duration(mean),
+		ExecTimeMin:     time.Duration(minNs),
+		ExecTimeMax:     time.Duration(maxNs),
+		ExecTimeStdDev:  time.Duration(stddev),
+		AllocsPerOp:     uint64(math.Round(sumAllocs / float64(n))), //nolint:gosec // AllocsPerOp is never negative
+		AllocBytesPerOp: uint64(math.Round(sumBytes / float64(n))),  //nolint:gosec // AllocedBytesPerOp is never negative
+		Samples:         samples,
 	}
 }
 
@@ -111,6 +168,7 @@ func BenchBWArrInsert(b *testing.B, params Params) {
 		bwa := bwarr.New(func(a, b int64) int {
 			return int(a - b)
 		}, 0)
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: Insert all values into fresh tree
@@ -136,6 +194,7 @@ func BenchBTreeInsert(b *testing.B, params Params) {
 		// Stop timer during tree creation (setup, not measured)
 		b.StopTimer()
 		tree := btree.NewOrderedG[int64](BTreeDegree)
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: Insert all values into fresh tree
@@ -153,7 +212,8 @@ func BenchBWArrGet(b *testing.B, params Params) {
 
 	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	// Run b.N iterations (controlled by testing.B framework)
@@ -178,7 +238,8 @@ func BenchBTreeGet(b *testing.B, params Params) {
 
 	toFind := params.InitValues[:params.ElementsToApply] // TODO: use a better selection strategy (shuffle?)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	// Run b.N iterations (controlled by testing.B framework)
@@ -198,7 +259,8 @@ func BenchBWArrOrderedIterate(b *testing.B, params Params) {
 
 	bwa := newBWArrFromSlice(params.InitValues)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	s := int64(0)
@@ -220,7 +282,8 @@ func BenchBTreeOrderedIterate(b *testing.B, params Params) {
 		tree.ReplaceOrInsert(v)
 	}
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	s := int64(0)
@@ -239,7 +302,8 @@ func BenchBWArrUnorderedIterate(b *testing.B, params Params) {
 
 	bwa := newBWArrFromSlice(params.InitValues)
 
-	// Reset timer to exclude any setup time
+	// Collect setup garbage and finish any running GC cycle before the timer starts
+	runtime.GC()
 	b.ResetTimer()
 
 	s := int64(0)
@@ -270,6 +334,7 @@ func BenchBTreeDelete(b *testing.B, params Params) {
 		for _, v := range params.InitValues {
 			tree.ReplaceOrInsert(v)
 		}
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: delete all values
@@ -294,6 +359,7 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 		// A fresh bwa per iteration so every iteration deletes real elements.
 		b.StopTimer()
 		bwa := newBWArrFromSlice(params.InitValues)
+		runtime.GC()
 		b.StartTimer()
 
 		// Measured operation: delete all values
