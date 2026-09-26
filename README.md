@@ -48,6 +48,7 @@ benchstat results/benchmarks.txt
 - **Get** - Look up values by key
 - **Iterate** - Traverse all values (ordered/unordered)
 - **Delete** - Remove all values
+- **Mixed workload** - Insert, Get and Delete interleaved 1:1:1 in random order on a structure of steady size N
 
 Feel free to add more operations!
 

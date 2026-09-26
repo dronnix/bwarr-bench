@@ -453,3 +453,145 @@ func GenerateRandomDataset(count int, seed, maxValue int64) []int64 {
 	}
 	return values
 }
+
+// ---------------------------------------------------------------------------
+// Mixed workload: Insert, Get and Delete interleaved 1:1:1 in a seeded random order
+// on a structure pre-populated with n keys. Each kind gets n/3 operations, so the
+// structure stays at about n elements and the total is n operations, comparable
+// with the single-operation graphs. The insert side follows case 1: bwarr blind
+// Insert vs btree ReplaceOrInsert.
+// ---------------------------------------------------------------------------
+
+// mixedOpKinds is the number of operation kinds in the mixed workload.
+const mixedOpKinds = 3
+
+// GenerateMixedDataset returns n + n/3 random keys for the mixed workload. The first n
+// are identical to the shared random dataset (same seed, same sequence) and
+// pre-populate the structure; the last n/3 are the new keys inserted by the workload.
+func GenerateMixedDataset(n int) []int64 {
+	return GenerateRandomDataset(n+n/mixedOpKinds, Seed, math.MaxInt64)
+}
+
+type mixedOp uint8
+
+const (
+	mixedInsert mixedOp = iota
+	mixedGet
+	mixedDelete
+)
+
+// mixedWorkload holds the pre-computed operation order and key streams of one run.
+// The dataset is already in random order, so the streams are plain index ranges:
+// deletes take the first third of the base keys, gets the second third (never
+// deleted, so every Get hits), inserts the extra keys after the base.
+type mixedWorkload struct {
+	base    []int64   // Keys the structure is pre-populated with
+	inserts []int64   // New keys, one per insert
+	gets    []int64   // Existing keys that are never deleted, one per get
+	deletes []int64   // Existing keys, one per delete
+	ops     []mixedOp // Operation order: exactly len(inserts) of each kind, seeded shuffle
+}
+
+// newMixedWorkload builds the workload for params. Both series are given the same
+// params and the shuffle is seeded, so they run the identical sequence.
+func newMixedWorkload(b *testing.B, params Params) mixedWorkload {
+	b.Helper()
+	n := params.ElementsToApply
+	per := n / mixedOpKinds
+	if len(params.InitValues) < n+per {
+		b.Fatalf("mixed workload needs %d init values (n + n/%d), got %d", n+per, mixedOpKinds, len(params.InitValues))
+	}
+	d := params.InitValues
+
+	ops := make([]mixedOp, 0, per*mixedOpKinds)
+	for _, kind := range []mixedOp{mixedInsert, mixedGet, mixedDelete} {
+		for range per {
+			ops = append(ops, kind)
+		}
+	}
+	rng := rand.New(rand.NewSource(Seed)) //nolint:gosec // Reproducible operation order, not security
+	rng.Shuffle(len(ops), func(i, j int) { ops[i], ops[j] = ops[j], ops[i] })
+
+	return mixedWorkload{
+		base:    d[:n],
+		deletes: d[:per],
+		gets:    d[per : 2*per],
+		inserts: d[n : n+per],
+		ops:     ops,
+	}
+}
+
+// BenchBWArrMixed benchmarks the mixed workload on bwarr: Insert, Get, Delete.
+func BenchBWArrMixed(b *testing.B, params Params) {
+	b.Helper()
+	w := newMixedWorkload(b, params)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		// Fresh pre-populated structure per iteration, outside the timer.
+		b.StopTimer()
+		bwa := newBWArrFromSlice(w.base)
+		runtime.GC()
+		b.StartTimer()
+
+		var ii, gi, di int
+		for _, op := range w.ops {
+			switch op {
+			case mixedInsert:
+				bwa.Insert(w.inserts[ii])
+				ii++
+			case mixedGet:
+				k := w.gets[gi]
+				r, ok := bwa.Get(k)
+				if !ok || r != k { // Use return values to avoid compiler optimizations
+					b.Fatalf("Expected to find %d, got %d (found: %v)", k, r, ok)
+				}
+				gi++
+			case mixedDelete:
+				bwa.Delete(w.deletes[di])
+				di++
+			}
+		}
+	}
+}
+
+// BenchBTreeMixed benchmarks the mixed workload on btree: ReplaceOrInsert, Get, Delete.
+func BenchBTreeMixed(b *testing.B, params Params) {
+	b.Helper()
+	w := newMixedWorkload(b, params)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for range b.N {
+		// Fresh pre-populated structure per iteration, outside the timer.
+		b.StopTimer()
+		tree := btree.NewOrderedG[int64](BTreeDegree)
+		for _, v := range w.base {
+			tree.ReplaceOrInsert(v)
+		}
+		runtime.GC()
+		b.StartTimer()
+
+		var ii, gi, di int
+		for _, op := range w.ops {
+			switch op {
+			case mixedInsert:
+				tree.ReplaceOrInsert(w.inserts[ii])
+				ii++
+			case mixedGet:
+				k := w.gets[gi]
+				r, ok := tree.Get(k)
+				if !ok || r != k { // Use return values to avoid compiler optimizations
+					b.Fatalf("Expected to find %d, got %d (found: %v)", k, r, ok)
+				}
+				gi++
+			case mixedDelete:
+				tree.Delete(w.deletes[di])
+				di++
+			}
+		}
+	}
+}

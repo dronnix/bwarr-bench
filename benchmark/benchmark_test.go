@@ -101,3 +101,9 @@ func BenchmarkBTree_UnorderedIterate(b *testing.B) { benchValues(b, BenchBTreeOr
 
 func BenchmarkBWArr_Delete(b *testing.B) { benchValues(b, BenchBWArrDelete) }
 func BenchmarkBTree_Delete(b *testing.B) { benchValues(b, BenchBTreeDelete) }
+
+// Mixed workload: N/3 inserts, N/3 gets, N/3 deletes in seeded random order on a
+// structure pre-populated with N keys. Insert flavor as in case 1.
+
+func BenchmarkBWArr_Mixed(b *testing.B) { benchDataset(b, BenchBWArrMixed, GenerateMixedDataset) }
+func BenchmarkBTree_Mixed(b *testing.B) { benchDataset(b, BenchBTreeMixed, GenerateMixedDataset) }

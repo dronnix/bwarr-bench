@@ -132,6 +132,40 @@ Measures the time to delete N values from a pre-populated data structure. Each v
 
 ---
 
+## Mixed Workload
+
+### Insert, Get, Delete in ratio 1:1:1
+
+Measures a mix of operations on a structure that is pre-populated with N random keys.
+The workload applies N operations in total: N/3 inserts of new random keys, N/3 lookups
+of existing keys and N/3 deletes of existing keys. The three kinds are interleaved in a
+seeded random order, so the structure stays at about N elements the whole time and the
+graph is comparable with the single-operation graphs above. Every lookup and every
+delete hits an existing key.
+
+The insert side follows case 1: bwarr uses its blind `Insert` (no duplicate check) and
+btree uses `ReplaceOrInsert`, its only insert. The inserted keys are new, so both do
+the same useful work.
+
+In the results the two libraries are close at every size: bwarr is 1-9% faster, from
+10.2 vs 10.3 ms at 100K to 873 vs 933 ms at 4M. bwarr's slower `Get` is balanced by its
+faster `Insert`, and its `Delete` is on par with btree. Memory behaviour differs a lot:
+bwarr makes about 9 allocations per run but they total 8 bytes per element (34 MB at
+4M), because merges rebuild whole levels; btree makes about N/200 small node
+allocations (20K at 4M) totalling 6 MB.
+
+**What's measured:** time, allocations and bytes per operation (as in case 1), where one
+operation is the whole sequence of N mixed operations
+
+**Setup:** fresh data structure pre-populated with N keys for each iteration, then a full
+GC, then timing starts
+
+![Time Performance](images/mixed_insert_get_delete.png)
+![Allocations per Operation](images/mixed_insert_get_delete_allocs.png)
+![Allocated Bytes per Operation (KB)](images/mixed_insert_get_delete_bytes.png)
+
+---
+
 ## Running Benchmarks
 
 To regenerate these graphs:

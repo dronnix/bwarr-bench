@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"math"
+	"slices"
 	"testing"
 	"time"
 )
@@ -198,5 +199,66 @@ func TestGenerateIncreasingDecreasingDataset(t *testing.T) {
 	}
 	if len(GenerateIncreasingDataset(0)) != 0 || len(GenerateDecreasingDataset(0)) != 0 {
 		t.Fatal("zero count must give an empty dataset")
+	}
+}
+
+func TestGenerateMixedDataset(t *testing.T) {
+	const n = 300
+	got := GenerateMixedDataset(n)
+	if len(got) != n+n/3 {
+		t.Fatalf("len = %d, want %d", len(got), n+n/3)
+	}
+	shared := GenerateRandomDataset(n, Seed, math.MaxInt64)
+	if !slices.Equal(got[:n], shared) {
+		t.Errorf("first %d values differ from the shared random dataset", n)
+	}
+}
+
+func TestNewMixedWorkload(t *testing.T) {
+	const n = 300
+	params := Params{ElementsToApply: n, InitValues: GenerateMixedDataset(n)}
+	b := &testing.B{}
+	w := newMixedWorkload(b, params)
+
+	if len(w.base) != n {
+		t.Errorf("base len = %d, want %d", len(w.base), n)
+	}
+	for name, s := range map[string][]int64{"inserts": w.inserts, "gets": w.gets, "deletes": w.deletes} {
+		if len(s) != n/3 {
+			t.Errorf("%s len = %d, want %d", name, len(s), n/3)
+		}
+	}
+	if len(w.ops) != n {
+		t.Fatalf("ops len = %d, want %d", len(w.ops), n)
+	}
+	counts := map[mixedOp]int{}
+	for _, op := range w.ops {
+		counts[op]++
+	}
+	for _, kind := range []mixedOp{mixedInsert, mixedGet, mixedDelete} {
+		if counts[kind] != n/3 {
+			t.Errorf("op kind %d count = %d, want %d", kind, counts[kind], n/3)
+		}
+	}
+	if slices.IsSorted(w.ops) {
+		t.Error("ops are not shuffled")
+	}
+
+	again := newMixedWorkload(b, params)
+	if !slices.Equal(again.ops, w.ops) {
+		t.Error("two workloads from the same params differ in op order")
+	}
+}
+
+// TestMixedBenchesRun runs both mixed benchmark functions at a small size so that a
+// Get miss (b.Fatalf inside the timed loop) would surface as a test failure.
+func TestMixedBenchesRun(t *testing.T) {
+	const n = 3000
+	params := Params{ElementsToApply: n, InitValues: GenerateMixedDataset(n)}
+	for name, f := range map[string]Func{"bwarr": BenchBWArrMixed, "btree": BenchBTreeMixed} {
+		r := testing.Benchmark(func(b *testing.B) { f(b, params) }) //nolint:thelper // Test-side runner
+		if r.N == 0 {
+			t.Errorf("%s: benchmark did not run (N = 0)", name)
+		}
 	}
 }
