@@ -27,7 +27,9 @@ make run ARGS="-bench=^insert"
 ```
 
 A partial run regenerates only the matching graphs and replaces only their lines in
-`results/benchmarks.txt`; results of the other comparisons are kept.
+`results/benchmarks.txt`; results of the other comparisons are kept. The kept lines
+must come from the same environment (OS, architecture, Go version, btree degree); if
+the file was produced elsewhere the run stops with an error instead of mixing results.
 
 Graphs are saved to `images/` directory. Each time graph shows the mean over all
 repetitions with error bars for the min..max spread. Raw per-repetition results are

@@ -309,18 +309,80 @@ func TestBuildComparisons(t *testing.T) {
 		if c.BWArrBenchFunc == nil || c.BTreeBenchFunc == nil {
 			t.Errorf("%s: both benchmark functions must be set", c.Name)
 		}
-		if len(c.Runs) != len(standardSizes()) {
-			t.Errorf("%s: %d runs, want %d", c.Name, len(c.Runs), len(standardSizes()))
+		// Metadata only: no datasets are generated until attachRuns
+		if len(c.Runs) != 0 {
+			t.Errorf("%s: buildComparisons should not attach runs, got %d", c.Name, len(c.Runs))
 		}
 		base := sanitizeFilename(c.Name)
 		if seen[base] {
 			t.Errorf("duplicate output file base %q", base)
 		}
 		seen[base] = true
-		for _, r := range c.Runs {
-			if len(r.InitValues) == 0 {
-				t.Errorf("%s: run %d has no dataset", c.Name, r.ElementsToApply)
+	}
+}
+
+func TestAttachRuns_SharesDatasets(t *testing.T) {
+	comps := []benchmark.Comparison{{Name: titleInsert}, {Name: titleLookup}}
+	attachRuns(comps)
+
+	sizes := standardSizes()
+	for i := range comps {
+		c := &comps[i]
+		if len(c.Runs) != len(sizes) {
+			t.Fatalf("%s: %d runs, want %d", c.Name, len(c.Runs), len(sizes))
+		}
+		for j, r := range c.Runs {
+			if r.ElementsToApply != sizes[j] || len(r.InitValues) != sizes[j] {
+				t.Errorf("%s: run %d has %d elements / %d values, want %d", c.Name, j, r.ElementsToApply, len(r.InitValues), sizes[j])
 			}
 		}
+	}
+
+	// The same size shares one backing array across comparisons
+	for j := range sizes {
+		a, b := comps[0].Runs[j].InitValues, comps[1].Runs[j].InitValues
+		if &a[0] != &b[0] {
+			t.Errorf("size %d: datasets are not shared between comparisons", sizes[j])
+		}
+	}
+}
+
+func TestWriteRawResults_RefusesDifferentEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "benchmarks.txt")
+	foreign := "goos: plan9\ngoarch: mips\ngoversion: go0.1\nbtree-degree: 32\n" +
+		"Benchmark" + fileLookup + "/bwarr/100K-1\t1\t5 ns/op\n"
+	err := os.WriteFile(path, []byte(foreign), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	insert := benchmark.Comparison{
+		Name: titleInsert,
+		Runs: []benchmark.Run{{
+			Params:      benchmark.Params{ElementsToApply: 100_000},
+			BwarrResult: benchmark.Result{Samples: []testing.BenchmarkResult{{N: 1, T: 100}}},
+		}},
+	}
+
+	// Kept lines from another environment: refuse
+	err = writeRawResults(path, []benchmark.Comparison{insert})
+	if err == nil || !strings.Contains(err.Error(), "different environment") {
+		t.Fatalf("expected a different-environment error, got %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != foreign {
+		t.Error("the existing file must be left untouched when the merge is refused")
+	}
+
+	// Nothing to keep (the only comparison in the file is being rerun): overwrite is fine
+	lookup := insert
+	lookup.Name = titleLookup
+	err = writeRawResults(path, []benchmark.Comparison{lookup})
+	if err != nil {
+		t.Fatalf("rerun of the only stored comparison should overwrite: %v", err)
+	}
+	data, _ = os.ReadFile(path)
+	if strings.Contains(string(data), "plan9") {
+		t.Error("old header should be replaced when no lines are kept")
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -65,6 +66,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error: %v", err)
 	}
+
+	// Datasets are generated only now, only for the selected comparisons, and shared
+	// between them: every comparison uses the same seed and sizes, so the values are
+	// identical and the benchmarks only read them.
+	attachRuns(comparisons)
 
 	log.Printf("Running %d of %d comparisons (%d repetitions per point)...", len(comparisons), len(all), *count)
 
@@ -129,55 +135,60 @@ func main() {
 	log.Printf("Done! Generated %d graphs", graphCount)
 }
 
-// valueRuns creates one Run per standard size with a dataset of unique random int64 values.
-func valueRuns() []benchmark.Run {
+// attachRuns gives every comparison one Run per standard size. The dataset for each
+// size is generated once and shared by all comparisons (they only read it), so the
+// cost is one copy of each size instead of one per comparison, and nothing is
+// allocated for comparisons that were filtered out.
+func attachRuns(comparisons []benchmark.Comparison) {
 	sizes := standardSizes()
-	runs := make([]benchmark.Run, 0, len(sizes))
+	datasets := make(map[int][]int64, len(sizes))
 	for _, n := range sizes {
-		runs = append(runs, benchmark.Run{Params: benchmark.Params{
-			ElementsToApply: n,
-			InitValues:      benchmark.GenerateRandomDataset(n, benchmark.Seed, math.MaxInt64),
-		}})
+		datasets[n] = benchmark.GenerateRandomDataset(n, benchmark.Seed, math.MaxInt64)
 	}
-	return runs
+	for i := range comparisons {
+		runs := make([]benchmark.Run, 0, len(sizes))
+		for _, n := range sizes {
+			runs = append(runs, benchmark.Run{Params: benchmark.Params{
+				ElementsToApply: n,
+				InitValues:      datasets[n],
+			}})
+		}
+		comparisons[i].Runs = runs
+	}
 }
 
-// buildComparisons defines every graph the tool produces (each gets its own Runs slice).
+// buildComparisons defines every graph the tool produces. It returns metadata only;
+// datasets are attached later by attachRuns, after -list / -bench filtering.
 func buildComparisons() []benchmark.Comparison {
 	return []benchmark.Comparison{
 		{
 			Name:           "Insert unique values",
 			BWArrBenchFunc: benchmark.BenchBWArrInsert,
 			BTreeBenchFunc: benchmark.BenchBTreeInsert,
-			Runs:           valueRuns(),
 			MeasureAllocs:  true,
 		},
 		{
 			Name:           "Get all values by key",
 			BWArrBenchFunc: benchmark.BenchBWArrGet,
 			BTreeBenchFunc: benchmark.BenchBTreeGet,
-			Runs:           valueRuns(),
 			MeasureAllocs:  false,
 		},
 		{
 			Name:           "Ordered iteration over all values",
 			BWArrBenchFunc: benchmark.BenchBWArrOrderedIterate,
 			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			Runs:           valueRuns(),
 			MeasureAllocs:  false,
 		},
 		{
 			Name:           "Unordered iteration over all values",
 			BWArrBenchFunc: benchmark.BenchBWArrUnorderedIterate,
 			BTreeBenchFunc: benchmark.BenchBTreeOrderedIterate,
-			Runs:           valueRuns(),
 			MeasureAllocs:  false,
 		},
 		{
 			Name:           "Delete all values",
 			BWArrBenchFunc: benchmark.BenchBWArrDelete,
 			BTreeBenchFunc: benchmark.BenchBTreeDelete,
-			Runs:           valueRuns(),
 			MeasureAllocs:  false,
 		},
 	}
@@ -243,16 +254,22 @@ func sanitizeFilename(name string) string {
 //
 // If the file already exists, result lines of comparisons that are not in this run are
 // kept, so running a subset with -bench does not discard the other comparisons' data.
-// The header is always rewritten.
+// Kept lines are only valid under the same header (OS, architecture, Go version, btree
+// degree); if the existing file was produced in a different environment the merge is
+// refused, because benchstat would attribute the old lines to the new environment.
 func writeRawResults(path string, comparisons []benchmark.Comparison) error {
 	err := os.MkdirAll(filepath.Dir(path), 0755) //nolint:mnd // Standard directory permissions
 	if err != nil {
 		return fmt.Errorf("creating results directory: %w", err)
 	}
 
-	kept, err := readOtherResults(path, comparisons)
+	kept, oldHeader, err := readOtherResults(path, comparisons)
 	if err != nil {
 		return err
+	}
+	if len(kept) > 0 && !slices.Equal(oldHeader, resultsHeader()) {
+		return fmt.Errorf("%s holds results from a different environment (%s) than this one (%s); "+
+			"delete the file or run all comparisons", path, strings.Join(oldHeader, ", "), strings.Join(resultsHeader(), ", "))
 	}
 
 	f, err := os.Create(path)
@@ -272,16 +289,27 @@ func writeRawResults(path string, comparisons []benchmark.Comparison) error {
 	return nil
 }
 
+// resultsHeader returns the configuration lines written at the top of the results file.
+// benchstat treats "key: value" lines as configuration of the results that follow.
+func resultsHeader() []string {
+	return []string{
+		"goos: " + runtime.GOOS,
+		"goarch: " + runtime.GOARCH,
+		"goversion: " + runtime.Version(),
+		fmt.Sprintf("btree-degree: %d", benchmark.BTreeDegree),
+	}
+}
+
 // readOtherResults returns the result lines of an existing results file that do not
-// belong to any of the given comparisons. Header ("key: value") lines are dropped.
+// belong to any of the given comparisons, together with the file's header lines.
 // A missing file yields no lines and no error.
-func readOtherResults(path string, comparisons []benchmark.Comparison) ([]string, error) {
+func readOtherResults(path string, comparisons []benchmark.Comparison) (kept, header []string, err error) {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("opening existing results file: %w", err)
+		return nil, nil, fmt.Errorf("opening existing results file: %w", err)
 	}
 	defer f.Close() //nolint:errcheck // read-only file
 
@@ -290,20 +318,23 @@ func readOtherResults(path string, comparisons []benchmark.Comparison) ([]string
 		prefixes = append(prefixes, "Benchmark"+sanitizeFilename(comparisons[i].Name)+"/")
 	}
 
-	var kept []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
-		if !strings.HasPrefix(line, "Benchmark") || belongsTo(line, prefixes) {
-			continue
+		switch {
+		case strings.HasPrefix(line, "Benchmark"):
+			if !belongsTo(line, prefixes) {
+				kept = append(kept, line)
+			}
+		case strings.Contains(line, ": "):
+			header = append(header, line)
 		}
-		kept = append(kept, line)
 	}
 	err = sc.Err()
 	if err != nil {
-		return nil, fmt.Errorf("reading existing results file: %w", err)
+		return nil, nil, fmt.Errorf("reading existing results file: %w", err)
 	}
-	return kept, nil
+	return kept, header, nil
 }
 
 // belongsTo reports whether a result line starts with one of the comparison prefixes.
@@ -320,8 +351,7 @@ func belongsTo(line string, prefixes []string) bool {
 // keptLines are written verbatim after the header, before the new results.
 func formatRawResults(w io.Writer, keptLines []string, comparisons []benchmark.Comparison) error {
 	// Header lines in "key: value" form are treated as configuration by benchstat.
-	_, err := fmt.Fprintf(w, "goos: %s\ngoarch: %s\ngoversion: %s\nbtree-degree: %d\n",
-		runtime.GOOS, runtime.GOARCH, runtime.Version(), benchmark.BTreeDegree)
+	_, err := fmt.Fprintln(w, strings.Join(resultsHeader(), "\n"))
 	if err != nil {
 		return fmt.Errorf("writing header: %w", err)
 	}
