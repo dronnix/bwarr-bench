@@ -40,6 +40,8 @@ const (
 	// Legend names of the two libraries under comparison.
 	seriesBwarr = "bwarr"
 	seriesBtree = "btree"
+	// btree has no multiset Insert; in the Insert cases it is measured with ReplaceOrInsert.
+	seriesBtreeReplaceOrInsert = "btree (ReplaceOrInsert, doesn't support Insert)"
 )
 
 // standardSizes returns the dataset sizes every comparison is run at.
@@ -138,25 +140,33 @@ func main() {
 	log.Printf("Done! Generated %d graphs", graphCount)
 }
 
-// attachRuns gives every comparison one Run per standard size. The dataset for each
-// size is generated once and shared by all comparisons (they only read it), so the
-// cost is one copy of each size instead of one per comparison, and nothing is
-// allocated for comparisons that were filtered out.
+// attachRuns gives every comparison one Run per standard size. The default random
+// dataset for each size is generated once and shared by all comparisons that use it
+// (they only read it), so the cost is one copy of each size instead of one per
+// comparison, and nothing is allocated for comparisons that were filtered out.
+// A comparison with its own Dataset generator gets its own values.
 func attachRuns(comparisons []benchmark.Comparison) {
 	sizes := standardSizes()
-	datasets := make(map[int][]int64, len(sizes))
-	for _, n := range sizes {
-		datasets[n] = benchmark.GenerateRandomDataset(n, benchmark.Seed, math.MaxInt64)
-	}
+	random := make(map[int][]int64, len(sizes))
 	for i := range comparisons {
+		comp := &comparisons[i]
 		runs := make([]benchmark.Run, 0, len(sizes))
 		for _, n := range sizes {
+			var values []int64
+			if comp.Dataset != nil {
+				values = comp.Dataset(n)
+			} else {
+				if random[n] == nil {
+					random[n] = benchmark.GenerateRandomDataset(n, benchmark.Seed, math.MaxInt64)
+				}
+				values = random[n]
+			}
 			runs = append(runs, benchmark.Run{Params: benchmark.Params{
 				ElementsToApply: n,
-				InitValues:      datasets[n],
+				InitValues:      values,
 			}})
 		}
-		comparisons[i].Runs = runs
+		comp.Runs = runs
 	}
 }
 
@@ -171,7 +181,7 @@ func buildComparisons() []benchmark.Comparison {
 			FileName: "insert_unique_values",
 			Series: []benchmark.Series{
 				{Name: seriesBwarr, Func: benchmark.BenchBWArrInsert},
-				{Name: "btree (ReplaceOrInsert, doesn't support Insert)", Func: benchmark.BenchBTreeInsert},
+				{Name: seriesBtreeReplaceOrInsert, Func: benchmark.BenchBTreeInsert},
 			},
 			MeasureAllocs: true,
 		},
@@ -182,6 +192,22 @@ func buildComparisons() []benchmark.Comparison {
 				{Name: seriesBtree, Func: benchmark.BenchBTreeInsert},
 			},
 			MeasureAllocs: true,
+		},
+		{
+			Name:    "Insert increasing sequence",
+			Dataset: benchmark.GenerateIncreasingDataset,
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrInsert},
+				{Name: seriesBtreeReplaceOrInsert, Func: benchmark.BenchBTreeInsert},
+			},
+		},
+		{
+			Name:    "Insert decreasing sequence",
+			Dataset: benchmark.GenerateDecreasingDataset,
+			Series: []benchmark.Series{
+				{Name: seriesBwarr, Func: benchmark.BenchBWArrInsert},
+				{Name: seriesBtreeReplaceOrInsert, Func: benchmark.BenchBTreeInsert},
+			},
 		},
 		{
 			Name: "Get all values by key",

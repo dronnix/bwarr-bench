@@ -55,6 +55,27 @@ case 2 is the cost of the extra search bwarr must do to detect duplicates.
 
 ---
 
+### Case 3: Insert sorted sequences (increasing and decreasing)
+
+Same operations as case 1 (bwarr `Insert` vs btree `ReplaceOrInsert`), but the keys
+arrive already sorted: `0, 1, ..., N-1` (increasing, like timestamps or auto-increment
+IDs) and `N-1, ..., 1, 0` (decreasing). Every new key lands after (or before) all
+existing ones. Sorted input is favourable for both libraries. In the B-tree the insert
+path stays in cache, and the increasing case never shifts items inside a node, while
+the decreasing case shifts items at the front of a node on every insert. In bwarr the
+merge does the same work in either order, but the branches in the merge loop become
+perfectly predictable. In the results both libraries run about 4x faster than on
+random keys, and bwarr's time is the same for increasing and decreasing input.
+
+**What's measured:** time per operation (milliseconds)
+
+**Setup:** as in case 1
+
+![Increasing sequence](images/insert_increasing_sequence.png)
+![Decreasing sequence](images/insert_decreasing_sequence.png)
+
+---
+
 ## Read Operations
 
 ### Get All Values by Key

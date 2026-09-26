@@ -38,6 +38,35 @@ func benchValues(b *testing.B, f Func) {
 	}
 }
 
+// benchDataset runs f as a sub-benchmark per standard size with a dataset from gen.
+func benchDataset(b *testing.B, f Func, gen func(n int) []int64) {
+	b.Helper()
+	for _, s := range standardSizes() {
+		b.Run(s.name, func(b *testing.B) {
+			f(b, Params{ElementsToApply: s.n, InitValues: gen(s.n)})
+		})
+	}
+}
+
+// Insert benchmarks on sorted input: keys arrive in increasing or decreasing order
+// (case 3). Same operations as case 1: bwarr Insert vs btree ReplaceOrInsert.
+
+func BenchmarkBWArr_InsertIncreasing(b *testing.B) {
+	benchDataset(b, BenchBWArrInsert, GenerateIncreasingDataset)
+}
+
+func BenchmarkBTree_InsertIncreasing(b *testing.B) {
+	benchDataset(b, BenchBTreeInsert, GenerateIncreasingDataset)
+}
+
+func BenchmarkBWArr_InsertDecreasing(b *testing.B) {
+	benchDataset(b, BenchBWArrInsert, GenerateDecreasingDataset)
+}
+
+func BenchmarkBTree_InsertDecreasing(b *testing.B) {
+	benchDataset(b, BenchBTreeInsert, GenerateDecreasingDataset)
+}
+
 // ReplaceOrInsert benchmarks (unique collection). btree has only ReplaceOrInsert, so its
 // side is the same function as BenchmarkBTree_Insert_*; it is listed here under a matching
 // name so `go test -bench=ReplaceOrInsert` runs both implementations.
