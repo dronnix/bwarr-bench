@@ -180,3 +180,23 @@ func TestAggregate(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateIncreasingDecreasingDataset(t *testing.T) {
+	const n = 1000
+	inc := GenerateIncreasingDataset(n)
+	dec := GenerateDecreasingDataset(n)
+	if len(inc) != n || len(dec) != n {
+		t.Fatalf("lengths %d / %d, want %d", len(inc), len(dec), n)
+	}
+	for i := range n {
+		if inc[i] != int64(i) {
+			t.Fatalf("increasing[%d] = %d, want %d", i, inc[i], i)
+		}
+		if dec[i] != int64(n-1-i) {
+			t.Fatalf("decreasing[%d] = %d, want %d", i, dec[i], n-1-i)
+		}
+	}
+	if len(GenerateIncreasingDataset(0)) != 0 || len(GenerateDecreasingDataset(0)) != 0 {
+		t.Fatal("zero count must give an empty dataset")
+	}
+}

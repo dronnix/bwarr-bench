@@ -56,7 +56,10 @@ type Comparison struct {
 	FileName      string   // Base name for output files; derived from Name when empty
 	MeasureAllocs bool     // Whether to measure allocations
 	Series        []Series // Implementations under comparison, in legend order
-	Runs          []Run
+	// Dataset generates the InitValues for a run of n elements. nil means the default
+	// shared dataset of unique random values.
+	Dataset func(n int) []int64
+	Runs    []Run
 }
 
 // Run represents a single benchmark run with specific parameters and one result per Series.
@@ -419,6 +422,26 @@ func BenchBWArrDelete(b *testing.B, params Params) {
 // ---------------------------------------------------------------------------
 // Dataset generators.
 // ---------------------------------------------------------------------------
+
+// GenerateIncreasingDataset returns 0, 1, ..., count-1: keys arriving in sorted order,
+// as timestamps or auto-increment IDs do. Every value lands after all existing ones.
+func GenerateIncreasingDataset(count int) []int64 {
+	values := make([]int64, count)
+	for i := range count {
+		values[i] = int64(i)
+	}
+	return values
+}
+
+// GenerateDecreasingDataset returns count-1, ..., 1, 0: the reverse of
+// GenerateIncreasingDataset. Every value lands before all existing ones.
+func GenerateDecreasingDataset(count int) []int64 {
+	values := make([]int64, count)
+	for i := range count {
+		values[i] = int64(count - 1 - i)
+	}
+	return values
+}
 
 // GenerateRandomDataset creates a reproducible slice of random int64 values.
 // Values are in range [0, maxValue).

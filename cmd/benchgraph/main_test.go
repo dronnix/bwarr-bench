@@ -270,6 +270,24 @@ func TestAttachRuns_SharesDatasets(t *testing.T) {
 	}
 }
 
+func TestAttachRuns_OwnDataset(t *testing.T) {
+	comps := []benchmark.Comparison{
+		{FileName: fileInsert},
+		{FileName: "insert_increasing_sequence", Dataset: benchmark.GenerateIncreasingDataset},
+	}
+	attachRuns(comps)
+
+	for j, n := range standardSizes() {
+		shared, own := comps[0].Runs[j].InitValues, comps[1].Runs[j].InitValues
+		if len(own) != n || own[0] != 0 || own[n-1] != int64(n-1) {
+			t.Errorf("size %d: own dataset is not the increasing sequence", n)
+		}
+		if &shared[0] == &own[0] {
+			t.Errorf("size %d: comparison with its own Dataset must not share the random one", n)
+		}
+	}
+}
+
 func TestWriteRawResults_RefusesDifferentEnvironment(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "benchmarks.txt")
 	foreign := "goos: plan9\ngoarch: mips\ngoversion: go0.1\nbtree-degree: 32\n" +

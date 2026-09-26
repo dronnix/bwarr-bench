@@ -44,6 +44,7 @@ benchstat results/benchmarks.txt
 
 - **Insert (duplicates allowed)** - bwarr `Insert` vs btree `ReplaceOrInsert` (btree doesn't support a plain `Insert`)
 - **ReplaceOrInsert (unique collection)** - set semantics on both sides; the like-for-like number
+- **Insert increasing / decreasing sequence** - case 1 operations on keys that arrive already sorted (timestamps, IDs)
 - **Get** - Look up values by key
 - **Iterate** - Traverse all values (ordered/unordered)
 - **Delete** - Remove all values
